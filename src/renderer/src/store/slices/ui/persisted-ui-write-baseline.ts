@@ -109,7 +109,7 @@ function writeFieldEqual(field: keyof PersistedUIWriteBaseline, a: unknown, b: u
   if (field === 'gitGraphFiltersByWorktree') {
     return a === b || JSON.stringify(a) === JSON.stringify(b)
   }
-  if (field === 'filterRepoIds') {
+  if (field === 'filterRepoIds' || field === 'activityBarOrder' || field === 'activityBarHidden') {
     return stringArrayEqual(a as readonly string[], b as readonly string[])
   }
   if (field === 'visibleWorkspaceHostIds') {

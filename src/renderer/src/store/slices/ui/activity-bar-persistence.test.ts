@@ -17,3 +17,25 @@ it('restores the saved activity order and hidden panels from the write payload',
     vi.unstubAllGlobals()
   }
 })
+
+it('does not treat equal hydrated arrangements as local edits or overwrite a newer window', () => {
+  vi.stubGlobal('window', { api: { ui: { set: vi.fn().mockResolvedValue(undefined) } } })
+  try {
+    const store = createUIStore()
+    store
+      .getState()
+      .hydratePersistedUI(
+        makePersistedUI({ activityBarOrder: ['explorer'], activityBarHidden: ['plugin:a'] })
+      )
+    store
+      .getState()
+      .hydratePersistedUI(
+        makePersistedUI({ activityBarOrder: ['checks', 'explorer'], activityBarHidden: [] }),
+        'sync'
+      )
+    expect(store.getState().activityBarOrder).toEqual(['checks', 'explorer'])
+    expect(store.getState().activityBarHidden).toEqual([])
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
