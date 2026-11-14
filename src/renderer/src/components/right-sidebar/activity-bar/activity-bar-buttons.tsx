@@ -169,6 +169,7 @@ export function ActivityBarButton({
           aria-current={active ? 'page' : undefined}
           data-workspace-board-dismiss=""
           data-activity-plugin-key={item.pluginKey}
+          data-activity-item-id={item.id}
           aria-label={activityItemAriaLabel(item, effectiveStatus, t)}
         >
           <Icon size={isTop ? 16 : 18} />

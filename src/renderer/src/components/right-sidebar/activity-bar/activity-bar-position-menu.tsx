@@ -11,6 +11,8 @@ import {
   ContextMenuSeparator
 } from '@/components/ui/context-menu'
 import { useTranslate, type Translate } from '@/i18n/use-translate'
+import { useAppStore } from '@/store/index'
+import type { ActivityBarItem } from './activity-bar-buttons'
 import { usePluginPanelsStore } from '@/store/plugins/catalog/plugin-contribution-catalog'
 
 async function disableActivityBarPlugin(
@@ -33,12 +35,19 @@ async function disableActivityBarPlugin(
 
 export function useActivityBarContextPlugin(): {
   pluginKey: string | null
+  itemId: string | null
   onContextMenu: React.MouseEventHandler<HTMLElement>
   onPointerDown: React.PointerEventHandler<HTMLElement>
 } {
+  const [itemId, setItemId] = useState<string | null>(null)
   const [pluginKey, setPluginKey] = useState<string | null>(null)
   const updatePluginKey = (event: React.SyntheticEvent<HTMLElement>): void => {
     const target = event.target
+    setItemId(
+      target instanceof Element
+        ? (target.closest('[data-activity-item-id]')?.getAttribute('data-activity-item-id') ?? null)
+        : null
+    )
     setPluginKey(
       target instanceof Element
         ? (target.closest('[data-activity-plugin-key]')?.getAttribute('data-activity-plugin-key') ??
@@ -48,6 +57,7 @@ export function useActivityBarContextPlugin(): {
   }
   return {
     pluginKey,
+    itemId,
     onContextMenu: updatePluginKey,
     onPointerDown: (event) => {
       if (event.pointerType !== 'mouse') {
@@ -60,16 +70,60 @@ export function useActivityBarContextPlugin(): {
 export function ActivityBarPositionMenu({
   currentPosition,
   onChangePosition,
-  pluginKey
+  pluginKey,
+  itemId,
+  items
 }: {
   currentPosition: ActivityBarPosition
   onChangePosition: (pos: ActivityBarPosition) => void
   pluginKey?: string | null
+  itemId?: string | null
+  items: ActivityBarItem[]
 }): React.JSX.Element {
   const t = useTranslate()
+  const hidden = useAppStore((s) => s.activityBarHidden)
+  const setHidden = useAppStore((s) => s.setActivityBarHidden)
+  const setOrder = useAppStore((s) => s.setActivityBarOrder)
+  const index = items.findIndex((item) => item.id === itemId)
+  const selected = items[index]
+  const move = (offset: number): void => {
+    const ids = items.map((item) => item.id)
+    const target = index + offset
+    if (index === -1 || target < 0 || target >= ids.length) {
+      return
+    }
+    ;[ids[index], ids[target]] = [ids[target], ids[index]]
+    setOrder(ids)
+  }
   const [disabling, setDisabling] = useState(false)
   return (
     <ContextMenuContent>
+      {selected && (
+        <>
+          <ContextMenuItem disabled={index === 0} onSelect={() => move(-1)}>
+            {t('activityBar.moveUp', 'Move up')}
+          </ContextMenuItem>
+          <ContextMenuItem disabled={index === items.length - 1} onSelect={() => move(1)}>
+            {t('activityBar.moveDown', 'Move down')}
+          </ContextMenuItem>
+          {selected.pluginKey && (
+            <ContextMenuItem onSelect={() => setHidden([...hidden, selected.id])}>
+              {t('activityBar.hide', 'Hide')}
+            </ContextMenuItem>
+          )}
+          <ContextMenuSeparator />
+        </>
+      )}
+      {items
+        .filter((item) => item.pluginKey && hidden.includes(item.id))
+        .map((item) => (
+          <ContextMenuItem
+            key={item.id}
+            onSelect={() => setHidden(hidden.filter((id) => id !== item.id))}
+          >
+            {t('activityBar.show', 'Show {{name}}', { name: item.title })}
+          </ContextMenuItem>
+        ))}
       {pluginKey && typeof window.api?.plugins?.setEnabled === 'function' && (
         <>
           <ContextMenuItem

@@ -6,7 +6,23 @@ import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { getTopActivityBarLayout } from './activity-bar/activity-bar-overflow'
-import { ActivityBarButton } from './activity-bar/activity-bar-buttons'
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy
+} from '@dnd-kit/sortable'
+import { TopActivityOverflowMenu } from './activity-bar/activity-bar-buttons'
+import { SortableActivityButton } from './activity-bar/sortable-activity-button'
+import { arrangeActivityItems } from './activity-bar/activity-bar-arrangement'
 import { getActiveChecksStatus } from './checks-panel/status/active-checks-status'
 import { useShortcutLabel } from '@/lib/keyboard/useShortcutLabel'
 import {
@@ -65,19 +81,38 @@ function RightSidebarInner(): React.JSX.Element {
   const setActivityBarPosition = useAppStore((s) => s.setActivityBarPosition)
   const [topActivityStripWidth, setTopActivityStripWidth] = useState<number | null>(null)
   const {
-    visibleItems,
+    visibleItems: availableItems,
     activeFolderWorkspaceKey,
     pluginSystemEnabled,
     pluginFetchStatus,
     installedPluginTabKeys
   } = useRightSidebarActivityItems({ rightSidebarOpen })
   const { effectiveTab, selectActivityTab } = useRightSidebarTabRouting({
-    visibleItems,
+    visibleItems: availableItems,
     activeFolderWorkspaceKey,
     pluginSystemEnabled,
     pluginFetchStatus,
     installedPluginTabKeys
   })
+
+  const order = useAppStore((s) => s.activityBarOrder)
+  const hidden = useAppStore((s) => s.activityBarHidden)
+  const setOrder = useAppStore((s) => s.setActivityBarOrder)
+  const orderedItems = useMemo(
+    () => arrangeActivityItems(availableItems, order),
+    [availableItems, order]
+  )
+  const visibleItems = useMemo(
+    () => orderedItems.filter((item) => !hidden.includes(item.id) || !item.pluginKey),
+    [orderedItems, hidden]
+  )
+  const hiddenActiveItem = orderedItems.find(
+    (item) => item.id === effectiveTab && hidden.includes(item.id) && item.pluginKey
+  )
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
 
   useEffect(() => {
     if (lastRouteRequestId.current === routeRequestId) {
@@ -162,12 +197,11 @@ function RightSidebarInner(): React.JSX.Element {
   )
 
   const sideActivityBarIcons = visibleItems.map((item) => (
-    <ActivityBarButton
+    <SortableActivityButton
       key={item.id}
       item={item}
       active={effectiveTab === item.id}
       onClick={() => selectActivityTab(item.id)}
-      layout="side"
       statusIndicator={item.id === 'checks' ? checksStatus : null}
     />
   ))
@@ -218,6 +252,8 @@ function RightSidebarInner(): React.JSX.Element {
             closeButton={closeButton}
             activityBarPosition={activityBarPosition}
             onChangeActivityBarPosition={setActivityBarPosition}
+            arrangementItems={orderedItems}
+            hiddenActiveItem={hiddenActiveItem}
           />
         ) : (
           /* The 40px activity bar absorbs part of the 138px window-control overlay; inset the header by the remaining 98px. */
@@ -247,13 +283,46 @@ function RightSidebarInner(): React.JSX.Element {
             onPointerDown={contextPlugin.onPointerDown}
           >
             <div className="flex flex-col items-center w-10 min-w-[40px] bg-sidebar border-l border-border side-activity-bar-windows-inset">
-              <TooltipProvider>{sideActivityBarIcons}</TooltipProvider>
+              <TooltipProvider>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={({ active, over }) => {
+                    if (!over || active.id === over.id) {
+                      return
+                    }
+                    const ids: string[] = orderedItems.map((item) => item.id)
+                    const from = ids.indexOf(String(active.id))
+                    const to = ids.indexOf(String(over.id))
+                    if (from !== -1 && to !== -1) {
+                      setOrder(arrayMove(ids, from, to))
+                    }
+                  }}
+                >
+                  <SortableContext
+                    items={visibleItems.map((item) => item.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {sideActivityBarIcons}
+                  </SortableContext>
+                </DndContext>
+                {hiddenActiveItem && (
+                  <TopActivityOverflowMenu
+                    items={[hiddenActiveItem]}
+                    activeTab={effectiveTab}
+                    onSelect={selectActivityTab}
+                    checksStatus={checksStatus}
+                  />
+                )}
+              </TooltipProvider>
             </div>
           </ContextMenuTrigger>
           <ActivityBarPositionMenu
             currentPosition={activityBarPosition}
             onChangePosition={setActivityBarPosition}
             pluginKey={contextPlugin.pluginKey}
+            itemId={contextPlugin.itemId}
+            items={orderedItems}
           />
         </ContextMenu>
       )}

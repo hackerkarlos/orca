@@ -260,7 +260,11 @@ export function sanitizeActivityBarArrangement(ui: {
   activityBarOrder?: unknown
   activityBarHidden?: unknown
   activityBarPosition?: unknown
-}): { activityBarOrder: string[]; activityBarHidden: string[] } {
+}): {
+  activityBarOrder: string[]
+  activityBarHidden: string[]
+  activityBarPosition: ActivityBarPosition
+} {
   const strings = (value: unknown): string[] =>
     Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
   return {

@@ -30,8 +30,12 @@ export function RightSidebarTopActivityBar({
   checksStatus,
   closeButton,
   activityBarPosition,
-  onChangeActivityBarPosition
+  onChangeActivityBarPosition,
+  arrangementItems,
+  hiddenActiveItem
 }: {
+  arrangementItems: ActivityBarItem[]
+  hiddenActiveItem?: ActivityBarItem
   hasDesktopWindowChrome: boolean
   topActivityStripRef: (node: HTMLDivElement | null) => void
   topActivityLayout: { visibleItems: ActivityBarItem[]; overflowItems: ActivityBarItem[] }
@@ -71,9 +75,13 @@ export function RightSidebarTopActivityBar({
                       />
                     ))}
                   </div>
-                  {topActivityLayout.overflowItems.length > 0 && (
+                  {(topActivityLayout.overflowItems.length > 0 || hiddenActiveItem) && (
                     <TopActivityOverflowMenu
-                      items={topActivityLayout.overflowItems}
+                      items={
+                        hiddenActiveItem
+                          ? [...topActivityLayout.overflowItems, hiddenActiveItem]
+                          : topActivityLayout.overflowItems
+                      }
                       activeTab={effectiveTab}
                       onSelect={onSelectTab}
                       checksStatus={checksStatus}
@@ -129,9 +137,13 @@ export function RightSidebarTopActivityBar({
                   />
                 ))}
               </div>
-              {topActivityLayout.overflowItems.length > 0 && (
+              {(topActivityLayout.overflowItems.length > 0 || hiddenActiveItem) && (
                 <TopActivityOverflowMenu
-                  items={topActivityLayout.overflowItems}
+                  items={
+                    hiddenActiveItem
+                      ? [...topActivityLayout.overflowItems, hiddenActiveItem]
+                      : topActivityLayout.overflowItems
+                  }
                   activeTab={effectiveTab}
                   onSelect={onSelectTab}
                   checksStatus={checksStatus}
@@ -145,6 +157,8 @@ export function RightSidebarTopActivityBar({
         currentPosition={activityBarPosition}
         onChangePosition={onChangeActivityBarPosition}
         pluginKey={contextPlugin.pluginKey}
+        itemId={contextPlugin.itemId}
+        items={arrangementItems}
       />
     </ContextMenu>
   )
