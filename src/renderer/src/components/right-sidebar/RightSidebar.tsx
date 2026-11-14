@@ -252,9 +252,9 @@ function RightSidebarInner(): React.JSX.Element {
         if (!over || active.id === over.id) {
           return
         }
-        const ids = visibleItems.map((item) => item.id)
-        const from = ids.indexOf(active.id as (typeof ids)[number])
-        const to = ids.indexOf(over.id as (typeof ids)[number])
+        const ids: string[] = visibleItems.map((item) => item.id)
+        const from = ids.indexOf(String(active.id))
+        const to = ids.indexOf(String(over.id))
         if (from !== -1 && to !== -1) {
           setOrder(mergeActivityOrder(order, arrayMove(ids, from, to)))
         }
