@@ -159,8 +159,10 @@ export function ActivityBarButton({
   active,
   onClick,
   layout,
-  statusIndicator
+  statusIndicator,
+  buttonProps
 }: {
+  buttonProps?: React.ComponentPropsWithRef<'button'>
   item: ActivityBarItem
   active: boolean
   onClick: () => void
@@ -176,7 +178,23 @@ export function ActivityBarButton({
     <Tooltip>
       <TooltipTrigger asChild>
         <button
+          {...buttonProps}
           type="button"
+          onKeyDown={(event) => {
+            buttonProps?.onKeyDown?.(event)
+            if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+              event.preventDefault()
+              const rect = event.currentTarget.getBoundingClientRect()
+              event.currentTarget.dispatchEvent(
+                new MouseEvent('contextmenu', {
+                  bubbles: true,
+                  cancelable: true,
+                  clientX: rect.left,
+                  clientY: rect.bottom
+                })
+              )
+            }
+          }}
           className={cn(
             'relative flex shrink-0 items-center justify-center transition-colors',
             RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME,

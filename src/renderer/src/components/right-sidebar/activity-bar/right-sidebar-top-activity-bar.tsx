@@ -8,12 +8,10 @@ type CheckStatus = CoarseCheckStatus | 'cancelled'
 import { cn } from '@/lib/class-names'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
-import {
-  ActivityBarButton,
-  TopActivityOverflowMenu,
-  type ActivityBarItem
-} from './activity-bar-buttons'
+import { TopActivityOverflowMenu, type ActivityBarItem } from './activity-bar-buttons'
 
+import { SortableActivityButton } from './sortable-activity-button'
+import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { ActivityBarPositionMenu, useActivityBarContextPlugin } from './activity-bar-position-menu'
 import {
   RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME,
@@ -64,16 +62,21 @@ export function RightSidebarTopActivityBar({
                 <div className={cn('flex min-w-0 shrink', RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME)}>
                   {/* Use More for overflow because this narrow titlebar also holds close/window controls. */}
                   <div className="flex min-w-0 shrink">
-                    {topActivityLayout.visibleItems.map((item) => (
-                      <ActivityBarButton
-                        key={item.id}
-                        item={item}
-                        active={effectiveTab === item.id}
-                        onClick={() => onSelectTab(item.id)}
-                        layout="top"
-                        statusIndicator={item.id === 'checks' ? checksStatus : null}
-                      />
-                    ))}
+                    <SortableContext
+                      items={topActivityLayout.visibleItems.map((item) => item.id)}
+                      strategy={horizontalListSortingStrategy}
+                    >
+                      {topActivityLayout.visibleItems.map((item) => (
+                        <SortableActivityButton
+                          key={item.id}
+                          item={item}
+                          active={effectiveTab === item.id}
+                          onClick={() => onSelectTab(item.id)}
+                          layout="top"
+                          statusIndicator={item.id === 'checks' ? checksStatus : null}
+                        />
+                      ))}
+                    </SortableContext>
                   </div>
                   {(topActivityLayout.overflowItems.length > 0 || hiddenActiveItem) && (
                     <TopActivityOverflowMenu
@@ -129,16 +132,21 @@ export function RightSidebarTopActivityBar({
             >
               {/* Keep navigation in the body so custom desktop titlebars remain visually native and uncrowded. */}
               <div className="flex min-w-0 flex-1 shrink">
-                {topActivityLayout.visibleItems.map((item) => (
-                  <ActivityBarButton
-                    key={item.id}
-                    item={item}
-                    active={effectiveTab === item.id}
-                    onClick={() => onSelectTab(item.id)}
-                    layout="top"
-                    statusIndicator={item.id === 'checks' ? checksStatus : null}
-                  />
-                ))}
+                <SortableContext
+                  items={topActivityLayout.visibleItems.map((item) => item.id)}
+                  strategy={horizontalListSortingStrategy}
+                >
+                  {topActivityLayout.visibleItems.map((item) => (
+                    <SortableActivityButton
+                      key={item.id}
+                      item={item}
+                      active={effectiveTab === item.id}
+                      onClick={() => onSelectTab(item.id)}
+                      layout="top"
+                      statusIndicator={item.id === 'checks' ? checksStatus : null}
+                    />
+                  ))}
+                </SortableContext>
               </div>
               {(topActivityLayout.overflowItems.length > 0 || hiddenActiveItem) && (
                 <TopActivityOverflowMenu

@@ -86,10 +86,13 @@ export function ActivityBarPositionMenu({
   const setHidden = useAppStore((s) => s.setActivityBarHidden)
   const order = useAppStore((s) => s.activityBarOrder)
   const setOrder = useAppStore((s) => s.setActivityBarOrder)
-  const index = items.findIndex((item) => item.id === itemId)
-  const selected = items[index]
+  const visible = items.filter((item) => !item.pluginKey || !hidden.includes(item.id))
+  const index = visible.findIndex((item) => item.id === itemId)
+  const selected = items.find((item) => item.id === itemId)
+  const activeTab = useAppStore((s) => s.rightSidebarEffectiveTab)
+  const selectTab = useAppStore((s) => s.setRightSidebarTab)
   const move = (offset: number): void => {
-    const ids = items.map((item) => item.id)
+    const ids = visible.map((item) => item.id)
     const target = index + offset
     if (index === -1 || target < 0 || target >= ids.length) {
       return
@@ -102,14 +105,31 @@ export function ActivityBarPositionMenu({
     <ContextMenuContent>
       {selected && (
         <>
-          <ContextMenuItem disabled={index === 0} onSelect={() => move(-1)}>
-            {t('activityBar.moveUp', 'Move up')}
+          <ContextMenuItem disabled={index <= 0} onSelect={() => move(-1)}>
+            {currentPosition === 'top'
+              ? t('activityBar.moveLeft', 'Move left')
+              : t('activityBar.moveUp', 'Move up')}
           </ContextMenuItem>
-          <ContextMenuItem disabled={index === items.length - 1} onSelect={() => move(1)}>
-            {t('activityBar.moveDown', 'Move down')}
+          <ContextMenuItem
+            disabled={index === -1 || index === visible.length - 1}
+            onSelect={() => move(1)}
+          >
+            {currentPosition === 'top'
+              ? t('activityBar.moveRight', 'Move right')
+              : t('activityBar.moveDown', 'Move down')}
           </ContextMenuItem>
           {selected.pluginKey && !hidden.includes(selected.id) && (
-            <ContextMenuItem onSelect={() => setHidden([...hidden, selected.id])}>
+            <ContextMenuItem
+              onSelect={() => {
+                if (activeTab === selected.id) {
+                  const neighbour = visible[index + 1] ?? visible[index - 1]
+                  if (neighbour) {
+                    selectTab(neighbour.id)
+                  }
+                }
+                setHidden([...hidden, selected.id])
+              }}
+            >
               {t('activityBar.hide', 'Hide')}
             </ContextMenuItem>
           )}
@@ -126,6 +146,15 @@ export function ActivityBarPositionMenu({
             {t('activityBar.show', 'Show {{name}}', { name: item.title })}
           </ContextMenuItem>
         ))}
+      <ContextMenuItem
+        onSelect={() => {
+          setOrder([])
+          setHidden([])
+        }}
+      >
+        {t('activityBar.reset', 'Reset tab order')}
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       {pluginKey && typeof window.api?.plugins?.setEnabled === 'function' && (
         <>
           <ContextMenuItem

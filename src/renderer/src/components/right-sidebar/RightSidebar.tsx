@@ -6,20 +6,8 @@ import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { getTopActivityBarLayout } from './activity-bar/activity-bar-overflow'
-import {
-  DndContext,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  closestCenter
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy
-} from '@dnd-kit/sortable'
+import { DndContext, PointerSensor, useSensor, useSensors, closestCenter } from '@dnd-kit/core'
+import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { TopActivityOverflowMenu } from './activity-bar/activity-bar-buttons'
 import { SortableActivityButton } from './activity-bar/sortable-activity-button'
 import { arrangeActivityItems, mergeActivityOrder } from './activity-bar/activity-bar-arrangement'
@@ -109,10 +97,7 @@ function RightSidebarInner(): React.JSX.Element {
   const hiddenActiveItem = orderedItems.find(
     (item) => item.id === effectiveTab && hidden.includes(item.id) && item.pluginKey
   )
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   useEffect(() => {
     if (lastRouteRequestId.current === routeRequestId) {
@@ -192,14 +177,21 @@ function RightSidebarInner(): React.JSX.Element {
   ) : null
 
   const topActivityLayout = useMemo(
-    () => getTopActivityBarLayout(visibleItems, topActivityStripWidth, effectiveTab),
-    [visibleItems, topActivityStripWidth, effectiveTab]
+    () =>
+      getTopActivityBarLayout(
+        visibleItems,
+        topActivityStripWidth,
+        effectiveTab,
+        Boolean(hiddenActiveItem)
+      ),
+    [visibleItems, topActivityStripWidth, effectiveTab, hiddenActiveItem]
   )
 
   const sideActivityBarIcons = visibleItems.map((item) => (
     <SortableActivityButton
       key={item.id}
       item={item}
+      layout="side"
       active={effectiveTab === item.id}
       onClick={() => selectActivityTab(item.id)}
       statusIndicator={item.id === 'checks' ? checksStatus : null}
@@ -227,109 +219,135 @@ function RightSidebarInner(): React.JSX.Element {
   ) : null
 
   return (
-    <div
-      ref={containerRef}
-      className={cn(
-        'relative flex-shrink-0 flex flex-row',
-        // Allow the open resize handle to overflow; at width zero, clip mounted content and icons.
-        rightSidebarOpen ? 'overflow-visible' : 'overflow-hidden'
-      )}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      modifiers={[
+        (args) => ({ ...args.transform, ...(activityBarPosition === 'top' ? { y: 0 } : { x: 0 }) })
+      ]}
+      accessibility={{
+        announcements: {
+          onDragStart: ({ active }) =>
+            t('activityBar.dragStart', 'Picked up {{name}}', {
+              name: orderedItems.find((item) => item.id === active.id)?.title ?? ''
+            }),
+          onDragOver: ({ active, over }) =>
+            over
+              ? t('activityBar.dragOver', '{{name}} over {{target}}', {
+                  name: orderedItems.find((item) => item.id === active.id)?.title ?? '',
+                  target: orderedItems.find((item) => item.id === over.id)?.title ?? ''
+                })
+              : undefined,
+          onDragEnd: ({ active }) =>
+            t('activityBar.dragEnd', 'Dropped {{name}}', {
+              name: orderedItems.find((item) => item.id === active.id)?.title ?? ''
+            }),
+          onDragCancel: ({ active }) =>
+            t('activityBar.dragCancel', 'Cancelled moving {{name}}', {
+              name: orderedItems.find((item) => item.id === active.id)?.title ?? ''
+            })
+        }
+      }}
+      onDragEnd={({ active, over }) => {
+        if (!over || active.id === over.id) {
+          return
+        }
+        const ids = visibleItems.map((item) => item.id)
+        const from = ids.indexOf(active.id as (typeof ids)[number])
+        const to = ids.indexOf(over.id as (typeof ids)[number])
+        if (from !== -1 && to !== -1) {
+          setOrder(mergeActivityOrder(order, arrayMove(ids, from, to)))
+        }
+      }}
     >
       <div
-        className="flex flex-col flex-1 min-w-0 bg-sidebar overflow-hidden"
-        style={{
-          borderLeft: rightSidebarOpen ? '1px solid var(--sidebar-border)' : 'none'
-        }}
-      >
-        {activityBarPosition === 'top' ? (
-          <RightSidebarTopActivityBar
-            hasDesktopWindowChrome={hasDesktopWindowChrome}
-            topActivityStripRef={topActivityStripRef}
-            topActivityLayout={topActivityLayout}
-            effectiveTab={effectiveTab}
-            onSelectTab={selectActivityTab}
-            checksStatus={checksStatus}
-            closeButton={closeButton}
-            activityBarPosition={activityBarPosition}
-            onChangeActivityBarPosition={setActivityBarPosition}
-            arrangementItems={orderedItems}
-            hiddenActiveItem={hiddenActiveItem}
-          />
-        ) : (
-          /* The 40px activity bar absorbs part of the 138px window-control overlay; inset the header by the remaining 98px. */
-          <div className="flex items-center justify-between h-[36px] min-h-[36px] px-3 border-b border-border right-sidebar-header-side-inset right-sidebar-header-drag">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
-              {visibleItems.find((item) => item.id === effectiveTab)?.title ?? ''}
-            </span>
-            <TooltipProvider>
-              <div className="flex items-center">{closeButton}</div>
-            </TooltipProvider>
-          </div>
+        ref={containerRef}
+        className={cn(
+          'relative flex-shrink-0 flex flex-row',
+          // Allow the open resize handle to overflow; at width zero, clip mounted content and icons.
+          rightSidebarOpen ? 'overflow-visible' : 'overflow-hidden'
         )}
-
-        {panelContent}
-
+      >
         <div
-          className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-ring/20 active:bg-ring/30 transition-colors z-10"
-          onMouseDown={onResizeStart}
-        />
-      </div>
-
-      {activityBarPosition === 'side' && (
-        <ContextMenu>
-          <ContextMenuTrigger
-            asChild
-            onContextMenu={contextPlugin.onContextMenu}
-            onPointerDown={contextPlugin.onPointerDown}
-          >
-            <div className="flex flex-col items-center w-10 min-w-[40px] bg-sidebar border-l border-border side-activity-bar-windows-inset">
+          className="flex flex-col flex-1 min-w-0 bg-sidebar overflow-hidden"
+          style={{
+            borderLeft: rightSidebarOpen ? '1px solid var(--sidebar-border)' : 'none'
+          }}
+        >
+          {activityBarPosition === 'top' ? (
+            <RightSidebarTopActivityBar
+              hasDesktopWindowChrome={hasDesktopWindowChrome}
+              topActivityStripRef={topActivityStripRef}
+              topActivityLayout={topActivityLayout}
+              effectiveTab={effectiveTab}
+              onSelectTab={selectActivityTab}
+              checksStatus={checksStatus}
+              closeButton={closeButton}
+              activityBarPosition={activityBarPosition}
+              onChangeActivityBarPosition={setActivityBarPosition}
+              arrangementItems={orderedItems}
+              hiddenActiveItem={hiddenActiveItem}
+            />
+          ) : (
+            /* The 40px activity bar absorbs part of the 138px window-control overlay; inset the header by the remaining 98px. */
+            <div className="flex items-center justify-between h-[36px] min-h-[36px] px-3 border-b border-border right-sidebar-header-side-inset right-sidebar-header-drag">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+                {visibleItems.find((item) => item.id === effectiveTab)?.title ?? ''}
+              </span>
               <TooltipProvider>
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={({ active, over }) => {
-                    if (!over || active.id === over.id) {
-                      return
-                    }
-                    const ids: string[] = orderedItems.map((item) => item.id)
-                    const from = ids.indexOf(String(active.id))
-                    const to = ids.indexOf(String(over.id))
-                    if (from !== -1 && to !== -1) {
-                      setOrder(mergeActivityOrder(order, arrayMove(ids, from, to)))
-                    }
-                  }}
-                >
+                <div className="flex items-center">{closeButton}</div>
+              </TooltipProvider>
+            </div>
+          )}
+
+          {panelContent}
+
+          <div
+            className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-ring/20 active:bg-ring/30 transition-colors z-10"
+            onMouseDown={onResizeStart}
+          />
+        </div>
+
+        {activityBarPosition === 'side' && (
+          <ContextMenu>
+            <ContextMenuTrigger
+              asChild
+              onContextMenu={contextPlugin.onContextMenu}
+              onPointerDown={contextPlugin.onPointerDown}
+            >
+              <div className="flex flex-col items-center w-10 min-w-[40px] bg-sidebar border-l border-border side-activity-bar-windows-inset">
+                <TooltipProvider>
                   <SortableContext
                     items={visibleItems.map((item) => item.id)}
                     strategy={verticalListSortingStrategy}
                   >
                     {sideActivityBarIcons}
                   </SortableContext>
-                </DndContext>
-                {hiddenActiveItem && (
-                  <TopActivityOverflowMenu
-                    items={[hiddenActiveItem]}
-                    activeTab={effectiveTab}
-                    onSelect={selectActivityTab}
-                    checksStatus={checksStatus}
-                    arrangementItems={orderedItems}
-                    activityBarPosition={activityBarPosition}
-                    onChangeActivityBarPosition={setActivityBarPosition}
-                  />
-                )}
-              </TooltipProvider>
-            </div>
-          </ContextMenuTrigger>
-          <ActivityBarPositionMenu
-            currentPosition={activityBarPosition}
-            onChangePosition={setActivityBarPosition}
-            pluginKey={contextPlugin.pluginKey}
-            itemId={contextPlugin.itemId}
-            items={orderedItems}
-          />
-        </ContextMenu>
-      )}
-    </div>
+                  {hiddenActiveItem && (
+                    <TopActivityOverflowMenu
+                      items={[hiddenActiveItem]}
+                      activeTab={effectiveTab}
+                      onSelect={selectActivityTab}
+                      checksStatus={checksStatus}
+                      arrangementItems={orderedItems}
+                      activityBarPosition={activityBarPosition}
+                      onChangeActivityBarPosition={setActivityBarPosition}
+                    />
+                  )}
+                </TooltipProvider>
+              </div>
+            </ContextMenuTrigger>
+            <ActivityBarPositionMenu
+              currentPosition={activityBarPosition}
+              onChangePosition={setActivityBarPosition}
+              pluginKey={contextPlugin.pluginKey}
+              itemId={contextPlugin.itemId}
+              items={orderedItems}
+            />
+          </ContextMenu>
+        )}
+      </div>
+    </DndContext>
   )
 }
 
