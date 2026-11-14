@@ -255,7 +255,13 @@ export async function buildPluginList(
       }
     }
   )
-  return markCommandReplacementOwners(entries, lock, (pluginKey, line) =>
+  const orderedEntries = entries.toSorted(
+    (a, b) =>
+      (lock.plugins[a.pluginKey]?.installedAt ?? Infinity) -
+        (lock.plugins[b.pluginKey]?.installedAt ?? Infinity) ||
+      a.pluginKey.localeCompare(b.pluginKey)
+  )
+  return markCommandReplacementOwners(orderedEntries, lock, (pluginKey, line) =>
     service.captureLog(pluginKey)('warn', line)
   )
 }

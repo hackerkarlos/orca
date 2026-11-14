@@ -7,6 +7,8 @@ import {
   readPluginLockfile,
   removeInstalledPlugin
 } from './plugin-install'
+import { PluginService } from '../plugin-service'
+import { listPluginsForClients } from '../discovery/plugin-client-list'
 import { readPluginCurrentPointer } from './plugin-current-pointer'
 
 const roots: string[] = []
@@ -52,6 +54,41 @@ afterEach(async () => {
 })
 
 describe('installPluginFromLocalPath', () => {
+  it('lists installed plugins in installation order even when IDs sort differently', async () => {
+    const userDataPath = await tempRoot('orca-plugin-order-')
+    const firstSource = await tempRoot('orca-plugin-first-')
+    const secondSource = await tempRoot('orca-plugin-second-')
+    await writePluginSource(firstSource, { id: 'z-first' })
+    await writePluginSource(secondSource, { id: 'a-second' })
+    const pluginsDir = join(userDataPath, 'plugins')
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    const first = await installPluginFromLocalPath({
+      pluginsDir,
+      sourcePath: firstSource,
+      hostVersion: '1.4.0'
+    })
+    clock.mockReturnValue(2000)
+    const second = await installPluginFromLocalPath({
+      pluginsDir,
+      sourcePath: secondSource,
+      hostVersion: '1.4.0'
+    })
+    expect(first.ok && second.ok).toBe(true)
+    clock.mockRestore()
+    const service = new PluginService({
+      userDataPath,
+      hostVersion: '1.4.0',
+      isPluginSystemEnabled: () => false,
+      getDisabledPlugins: () => [],
+      getPluginConsents: () => ({}),
+      getDevPluginPaths: () => []
+    })
+    expect((await listPluginsForClients(service)).map((entry) => entry.pluginKey)).toEqual([
+      'samples.z-first',
+      'samples.a-second'
+    ])
+  })
+
   it('restores the previous current pointer when lockfile publication fails', async () => {
     const sourcePath = await tempRoot('orca-plugin-source-')
     const pluginsDir = await tempRoot('orca-plugin-installs-')
