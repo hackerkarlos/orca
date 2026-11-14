@@ -39,3 +39,29 @@ it('does not treat equal hydrated arrangements as local edits or overwrite a new
     vi.unstubAllGlobals()
   }
 })
+
+it('keeps newer local changes when an in-flight write is acknowledged', () => {
+  vi.stubGlobal('window', { api: { ui: { set: vi.fn().mockResolvedValue(undefined) } } })
+  try {
+    const store = createUIStore()
+    store
+      .getState()
+      .hydratePersistedUI(
+        makePersistedUI({ activityBarOrder: ['explorer'], activityBarHidden: [] })
+      )
+    store.setState({ activityBarOrder: ['checks', 'explorer'], activityBarHidden: ['plugin:a'] })
+    store.getState().notePersistedUIWriteStarted(['activityBarOrder', 'activityBarHidden'])
+    store.setState({ activityBarOrder: ['explorer', 'checks'], activityBarHidden: [] })
+    store.getState().hydratePersistedUI(
+      makePersistedUI({
+        activityBarOrder: ['checks', 'explorer'],
+        activityBarHidden: ['plugin:a']
+      }),
+      'sync'
+    )
+    expect(store.getState().activityBarOrder).toEqual(['explorer', 'checks'])
+    expect(store.getState().activityBarHidden).toEqual([])
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
