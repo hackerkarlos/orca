@@ -10,6 +10,8 @@ export type PersistedUIWriteBaseline = {
   rightSidebarTab: PersistedUIState['rightSidebarTab']
   rightSidebarExplorerView: PersistedUIState['rightSidebarExplorerView']
   rightSidebarWidth: number
+  activityBarOrder: string[]
+  activityBarHidden: string[]
   activityBarPosition: ActivityBarPosition
   markdownTocPanelWidth: number
   combinedDiffFileTreeWidth: number
@@ -44,6 +46,8 @@ const PERSISTED_UI_WRITE_BASELINE_FIELD_SET = {
   rightSidebarExplorerView: true,
   rightSidebarWidth: true,
   activityBarPosition: true,
+  activityBarOrder: true,
+  activityBarHidden: true,
   markdownTocPanelWidth: true,
   combinedDiffFileTreeWidth: true,
   groupBy: true,

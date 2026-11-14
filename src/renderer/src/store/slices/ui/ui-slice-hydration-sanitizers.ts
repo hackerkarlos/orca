@@ -255,3 +255,17 @@ export function sanitizePerWorktreePreferences(
     notificationsMutedByWorktree: sanitizeShowDotfilesByWorktree(ui.notificationsMutedByWorktree)
   }
 }
+
+export function sanitizeActivityBarArrangement(ui: {
+  activityBarOrder?: unknown
+  activityBarHidden?: unknown
+  activityBarPosition?: unknown
+}): { activityBarOrder: string[]; activityBarHidden: string[] } {
+  const strings = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+  return {
+    activityBarPosition: sanitizeActivityBarPosition(ui.activityBarPosition),
+    activityBarOrder: strings(ui.activityBarOrder),
+    activityBarHidden: strings(ui.activityBarHidden)
+  }
+}
