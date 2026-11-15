@@ -53,4 +53,15 @@ describe('activity bar arrangement', () => {
       arrangeActivityItems(items, ['plugin-a', 'explorer', 'vault']).map((item) => item.id)
     ).toEqual(['workspaces', 'plugin-a', 'explorer', 'vault'])
   })
+  it('keeps a saved plugin between built-ins when inserting a later default slot', () => {
+    const defaults = [
+      { id: 'explorer' },
+      { id: 'workspaces' },
+      { id: 'vault' },
+      { id: 'plugin-a', pluginKey: 'plugin-a' }
+    ]
+    expect(
+      arrangeActivityItems(defaults, ['explorer', 'plugin-a', 'vault']).map((item) => item.id)
+    ).toEqual(['explorer', 'plugin-a', 'workspaces', 'vault'])
+  })
 })

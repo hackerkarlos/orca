@@ -73,8 +73,10 @@ export function ActivityBarPositionMenu({
   onChangePosition,
   pluginKey,
   itemId,
-  items
+  items,
+  focusOverflowItem = false
 }: {
+  focusOverflowItem?: boolean
   currentPosition: ActivityBarPosition
   onChangePosition: (pos: ActivityBarPosition) => void
   pluginKey?: string | null
@@ -112,7 +114,10 @@ export function ActivityBarPositionMenu({
         focusAfterHide.current = null
         event.preventDefault()
         requestAnimationFrame(() => {
-          const tabs = document.querySelectorAll<HTMLElement>('button[data-activity-item-id]')
+          const selector = focusOverflowItem
+            ? '[role="menuitem"][data-activity-item-id]'
+            : 'button[data-activity-item-id]'
+          const tabs = document.querySelectorAll<HTMLElement>(selector)
           const target = Array.from(tabs).find((tab) => tab.dataset.activityItemId === id)
           ;(
             target ?? document.querySelector<HTMLElement>('[data-activity-overflow-trigger]')

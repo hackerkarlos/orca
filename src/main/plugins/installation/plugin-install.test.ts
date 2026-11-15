@@ -89,36 +89,66 @@ describe('installPluginFromLocalPath', () => {
     ])
   })
 
-  it('orders equal install times by code point, independent of locale', async () => {
-    const userDataPath = await tempRoot('orca-plugin-tie-')
-    const zSource = await tempRoot('orca-plugin-z-')
-    const aaSource = await tempRoot('orca-plugin-aa-')
-    await writePluginSource(zSource, { id: 'z' })
-    await writePluginSource(aaSource, { id: 'aa' })
-    const pluginsDir = join(userDataPath, 'plugins')
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000)
-    expect(
-      (await installPluginFromLocalPath({ pluginsDir, sourcePath: zSource, hostVersion: '1.4.0' }))
-        .ok
-    ).toBe(true)
-    expect(
-      (await installPluginFromLocalPath({ pluginsDir, sourcePath: aaSource, hostVersion: '1.4.0' }))
-        .ok
-    ).toBe(true)
-    clock.mockRestore()
-    const service = new PluginService({
-      userDataPath,
-      hostVersion: '1.4.0',
-      isPluginSystemEnabled: () => false,
-      getDisabledPlugins: () => [],
-      getPluginConsents: () => ({}),
-      getDevPluginPaths: () => []
-    })
-    expect((await listPluginsForClients(service)).map((entry) => entry.pluginKey)).toEqual([
-      'samples.aa',
-      'samples.z'
-    ])
-  })
+  it.each(['equal', 'missing'] as const)(
+    'orders plugin IDs by code point when install times are %s',
+    async (times) => {
+      const userDataPath = await tempRoot('orca-plugin-tie-')
+      const zSource = await tempRoot('orca-plugin-z-')
+      const aaSource = await tempRoot('orca-plugin-aa-')
+      await writePluginSource(zSource, { id: 'z' })
+      await writePluginSource(aaSource, { id: 'aa' })
+      const pluginsDir = join(userDataPath, 'plugins')
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(1000)
+      if (times === 'equal') {
+        expect(
+          (
+            await installPluginFromLocalPath({
+              pluginsDir,
+              sourcePath: zSource,
+              hostVersion: '1.4.0'
+            })
+          ).ok
+        ).toBe(true)
+        expect(
+          (
+            await installPluginFromLocalPath({
+              pluginsDir,
+              sourcePath: aaSource,
+              hostVersion: '1.4.0'
+            })
+          ).ok
+        ).toBe(true)
+      }
+      clock.mockRestore()
+      const service = new PluginService({
+        userDataPath,
+        hostVersion: '1.4.0',
+        isPluginSystemEnabled: () => false,
+        getDisabledPlugins: () => [],
+        getPluginConsents: () => ({}),
+        getDevPluginPaths: () => (times === 'missing' ? [zSource, aaSource] : [])
+      })
+      const original = String.prototype.localeCompare
+      const danish = new Intl.Collator('da-DK')
+      vi.spyOn(String.prototype, 'localeCompare').mockImplementation(function (
+        this: string,
+        other
+      ) {
+        const current = String(this)
+        if (
+          (current === 'samples.aa' || current === 'samples.z') &&
+          (other === 'samples.aa' || other === 'samples.z')
+        ) {
+          return danish.compare(current, other)
+        }
+        return original.call(current, other)
+      })
+      expect((await listPluginsForClients(service)).map((entry) => entry.pluginKey)).toEqual([
+        'samples.aa',
+        'samples.z'
+      ])
+    }
+  )
 
   it('restores the previous current pointer when lockfile publication fails', async () => {
     const sourcePath = await tempRoot('orca-plugin-source-')

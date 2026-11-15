@@ -12,14 +12,23 @@ export function arrangeActivityItems<T extends { id: string; pluginKey?: string 
     }
   }
   let previousBuiltin: T | undefined
-  for (const item of items) {
+  for (const [defaultIndex, item] of items.entries()) {
     if (item.pluginKey) {
       continue
     }
     if (byId.has(item.id)) {
-      const afterPrevious = previousBuiltin ? result.indexOf(previousBuiltin) + 1 : 0
+      const previousIndex = previousBuiltin ? result.indexOf(previousBuiltin) : -1
       const firstPlugin = result.findIndex((entry) => entry.pluginKey)
-      const index = firstPlugin === -1 ? afterPrevious : Math.min(afterPrevious, firstPlugin)
+      const nextBuiltin = items
+        .slice(defaultIndex + 1)
+        .find((entry) => !entry.pluginKey && result.includes(entry))
+      const nextIndex = nextBuiltin ? result.indexOf(nextBuiltin) : -1
+      const index =
+        firstPlugin !== -1 && firstPlugin < previousIndex
+          ? firstPlugin
+          : nextIndex > previousIndex
+            ? nextIndex
+            : previousIndex + 1
       result.splice(index, 0, item)
       byId.delete(item.id)
     }
