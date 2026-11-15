@@ -106,3 +106,25 @@ it('opens the neighbouring panel when hiding the active panel', () => {
   fireEvent.click(screen.getByRole('menuitem', { name: 'Hide' }))
   expect(useAppStore.getState().rightSidebarTab).toBe('explorer')
 })
+
+it.each(['ContextMenu', 'F10'])('opens the overflow context menu with %s', (key) => {
+  render(
+    <TopActivityOverflowMenu
+      items={[items[1]]}
+      arrangementItems={items}
+      activeTab="explorer"
+      onSelect={vi.fn()}
+      activityBarPosition="top"
+      onChangeActivityBarPosition={vi.fn()}
+    />
+  )
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'More sidebar tabs' }), {
+    button: 0,
+    pointerType: 'mouse',
+    ctrlKey: false
+  })
+  const item = screen.getByRole('menuitem', { name: 'Plugin' })
+  item.focus()
+  fireEvent.keyDown(item, { key, shiftKey: key === 'F10' })
+  expect(screen.getByRole('menuitem', { name: 'Hide' })).toBeTruthy()
+})

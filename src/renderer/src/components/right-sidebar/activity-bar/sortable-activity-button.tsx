@@ -16,8 +16,9 @@ export function SortableActivityButton({
   onClick: () => void
   statusIndicator?: 'success' | 'failure' | 'pending' | 'neutral' | 'cancelled' | null
 }): React.JSX.Element {
-  const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition } =
-    useSortable({ id: item.id })
+  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition } = useSortable({
+    id: item.id
+  })
   return (
     <ActivityBarButton
       item={item}
@@ -26,7 +27,6 @@ export function SortableActivityButton({
       layout={layout}
       statusIndicator={statusIndicator}
       buttonProps={{
-        ...attributes,
         ...listeners,
         ref: (node) => {
           setNodeRef(node)

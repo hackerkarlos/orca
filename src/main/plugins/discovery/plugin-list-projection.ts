@@ -259,7 +259,7 @@ export async function buildPluginList(
     (a, b) =>
       (lock.plugins[a.pluginKey]?.installedAt ?? Infinity) -
         (lock.plugins[b.pluginKey]?.installedAt ?? Infinity) ||
-      a.pluginKey.localeCompare(b.pluginKey)
+      (a.pluginKey < b.pluginKey ? -1 : a.pluginKey > b.pluginKey ? 1 : 0)
   )
   return markCommandReplacementOwners(orderedEntries, lock, (pluginKey, line) =>
     service.captureLog(pluginKey)('warn', line)

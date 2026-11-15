@@ -34,7 +34,11 @@ it.each(['top', 'side'] as const)(
       </TooltipProvider>
     )
     await user.tab()
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Explorer' }))
+    const button = screen.getByRole('button', { name: 'Explorer' })
+    expect(document.activeElement).toBe(button)
+    expect(button.getAttribute('aria-roledescription')).toBeNull()
+    const description = document.getElementById(button.getAttribute('aria-describedby') ?? '')
+    expect(description?.textContent ?? '').not.toMatch(/space bar/i)
     await user.keyboard('{Enter} ')
     expect(onClick).toHaveBeenCalledTimes(2)
     await user.tab()

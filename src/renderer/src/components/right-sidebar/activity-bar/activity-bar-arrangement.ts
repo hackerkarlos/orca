@@ -17,7 +17,9 @@ export function arrangeActivityItems<T extends { id: string; pluginKey?: string 
       continue
     }
     if (byId.has(item.id)) {
-      const index = previousBuiltin ? result.indexOf(previousBuiltin) + 1 : 0
+      const afterPrevious = previousBuiltin ? result.indexOf(previousBuiltin) + 1 : 0
+      const firstPlugin = result.findIndex((entry) => entry.pluginKey)
+      const index = firstPlugin === -1 ? afterPrevious : Math.min(afterPrevious, firstPlugin)
       result.splice(index, 0, item)
       byId.delete(item.id)
     }

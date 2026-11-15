@@ -42,4 +42,15 @@ describe('activity bar arrangement', () => {
       arrangeActivityItems(workspaceB, ['checks', 'explorer', 'plugin-a']).map((item) => item.id)
     ).toEqual(['checks', 'explorer', 'vault', 'plugin-a'])
   })
+  it('inserts a newly available built-in before a plugin moved ahead of saved built-ins', () => {
+    const items = [
+      { id: 'explorer' },
+      { id: 'vault' },
+      { id: 'workspaces' },
+      { id: 'plugin-a', pluginKey: 'plugin-a' }
+    ]
+    expect(
+      arrangeActivityItems(items, ['plugin-a', 'explorer', 'vault']).map((item) => item.id)
+    ).toEqual(['workspaces', 'plugin-a', 'explorer', 'vault'])
+  })
 })

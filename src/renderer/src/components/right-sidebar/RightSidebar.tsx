@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { PanelRight } from 'lucide-react'
 import { useAppStore } from '@/store/index'
+import { useShallow } from 'zustand/react/shallow'
 import { cn } from '@/lib/class-names'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
@@ -83,8 +84,9 @@ function RightSidebarInner(): React.JSX.Element {
     installedPluginTabKeys
   })
 
-  const order = useAppStore((s) => s.activityBarOrder)
-  const hidden = useAppStore((s) => s.activityBarHidden)
+  const { order, hidden } = useAppStore(
+    useShallow((s) => ({ order: s.activityBarOrder, hidden: s.activityBarHidden }))
+  )
   const setOrder = useAppStore((s) => s.setActivityBarOrder)
   const orderedItems = useMemo(
     () => arrangeActivityItems(availableItems, order),
@@ -292,7 +294,7 @@ function RightSidebarInner(): React.JSX.Element {
             /* The 40px activity bar absorbs part of the 138px window-control overlay; inset the header by the remaining 98px. */
             <div className="flex items-center justify-between h-[36px] min-h-[36px] px-3 border-b border-border right-sidebar-header-side-inset right-sidebar-header-drag">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
-                {visibleItems.find((item) => item.id === effectiveTab)?.title ?? ''}
+                {orderedItems.find((item) => item.id === effectiveTab)?.title ?? ''}
               </span>
               <TooltipProvider>
                 <div className="flex items-center">{closeButton}</div>

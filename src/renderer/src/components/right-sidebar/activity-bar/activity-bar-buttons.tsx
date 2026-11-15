@@ -55,6 +55,22 @@ function activityItemAriaLabel(
       : base
 }
 
+function openKeyboardContextMenu(event: React.KeyboardEvent<HTMLElement>): void {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) {
+    return
+  }
+  event.preventDefault()
+  const rect = event.currentTarget.getBoundingClientRect()
+  event.currentTarget.dispatchEvent(
+    new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left,
+      clientY: rect.bottom
+    })
+  )
+}
+
 export function TopActivityOverflowMenu({
   items,
   activeTab,
@@ -94,6 +110,7 @@ export function TopActivityOverflowMenu({
             'relative flex h-[36px] w-8 shrink-0 items-center justify-center text-muted-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
             RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME
           )}
+          data-activity-overflow-trigger=""
           aria-label={
             hiddenItemStatus === 'failure'
               ? `${moreTabsLabel} — ${t('auto.components.right.sidebar.activityBar.error', 'Error')}`
@@ -122,6 +139,8 @@ export function TopActivityOverflowMenu({
               <ContextMenuTrigger asChild>
                 <DropdownMenuItem
                   onSelect={() => onSelect(item.id)}
+                  onKeyDown={openKeyboardContextMenu}
+                  data-activity-item-id={item.id}
                   data-workspace-board-dismiss=""
                   data-activity-plugin-key={item.pluginKey}
                   className={cn(active && 'bg-accent text-accent-foreground')}
@@ -173,27 +192,22 @@ export function ActivityBarButton({
   const Icon = item.icon
   const isTop = layout === 'top'
   const effectiveStatus = item.statusIndicator ?? statusIndicator
+  const [tooltipOpen, setTooltipOpen] = React.useState(false)
+  React.useEffect(() => {
+    const close = (): void => setTooltipOpen(false)
+    document.addEventListener('contextmenu', close)
+    return () => document.removeEventListener('contextmenu', close)
+  }, [])
 
   return (
-    <Tooltip>
+    <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
       <TooltipTrigger asChild>
         <button
           {...buttonProps}
           type="button"
           onKeyDown={(event) => {
             buttonProps?.onKeyDown?.(event)
-            if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
-              event.preventDefault()
-              const rect = event.currentTarget.getBoundingClientRect()
-              event.currentTarget.dispatchEvent(
-                new MouseEvent('contextmenu', {
-                  bubbles: true,
-                  cancelable: true,
-                  clientX: rect.left,
-                  clientY: rect.bottom
-                })
-              )
-            }
+            openKeyboardContextMenu(event)
           }}
           className={cn(
             'relative flex shrink-0 items-center justify-center transition-colors',
