@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { Power } from 'lucide-react'
 import { toast } from 'sonner'
 import type { ActivityBarPosition } from '../../../../../shared/ui-chrome/ui-chrome-types'
@@ -73,10 +73,8 @@ export function ActivityBarPositionMenu({
   onChangePosition,
   pluginKey,
   itemId,
-  items,
-  focusOverflowItem = false
+  items
 }: {
-  focusOverflowItem?: boolean
   currentPosition: ActivityBarPosition
   onChangePosition: (pos: ActivityBarPosition) => void
   pluginKey?: string | null
@@ -102,29 +100,9 @@ export function ActivityBarPositionMenu({
     ;[ids[index], ids[target]] = [ids[target], ids[index]]
     setOrder(mergeActivityOrder(order, ids))
   }
-  const focusAfterHide = useRef<string | null>(null)
   const [disabling, setDisabling] = useState(false)
   return (
-    <ContextMenuContent
-      onCloseAutoFocus={(event) => {
-        const id = focusAfterHide.current
-        if (!id) {
-          return
-        }
-        focusAfterHide.current = null
-        event.preventDefault()
-        requestAnimationFrame(() => {
-          const selector = focusOverflowItem
-            ? '[role="menuitem"][data-activity-item-id]'
-            : 'button[data-activity-item-id]'
-          const tabs = document.querySelectorAll<HTMLElement>(selector)
-          const target = Array.from(tabs).find((tab) => tab.dataset.activityItemId === id)
-          ;(
-            target ?? document.querySelector<HTMLElement>('[data-activity-overflow-trigger]')
-          )?.focus()
-        })
-      }}
-    >
+    <ContextMenuContent>
       {selected && (
         <>
           <ContextMenuItem disabled={index <= 0} onSelect={() => move(-1)}>
@@ -144,13 +122,23 @@ export function ActivityBarPositionMenu({
             <ContextMenuItem
               onSelect={() => {
                 const neighbour = visible[index + 1] ?? visible[index - 1]
-                focusAfterHide.current = neighbour?.id ?? null
                 if (activeTab === selected.id) {
                   if (neighbour) {
                     selectTab(neighbour.id)
                   }
                 }
                 setHidden([...hidden, selected.id])
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    const tabs = document.querySelectorAll<HTMLElement>(
+                      'button[data-activity-item-id], [role="menuitem"][data-activity-item-id]'
+                    )
+                    const target = Array.from(tabs).find(
+                      (tab) => tab.dataset.activityItemId === neighbour?.id
+                    )
+                    ;(target ?? tabs[0])?.focus()
+                  })
+                })
               }}
             >
               {t('activityBar.hide', 'Hide')}

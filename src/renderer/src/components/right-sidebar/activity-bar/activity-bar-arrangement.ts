@@ -11,28 +11,34 @@ export function arrangeActivityItems<T extends { id: string; pluginKey?: string 
       byId.delete(id)
     }
   }
-  let previousBuiltin: T | undefined
-  for (const [defaultIndex, item] of items.entries()) {
+  const savedBuiltins = new Set(result.filter((item) => !item.pluginKey).map((item) => item.id))
+  let anchor: T | undefined
+  let insertionTail: T | undefined
+  for (const item of items) {
     if (item.pluginKey) {
       continue
     }
+    if (savedBuiltins.has(item.id)) {
+      anchor = item
+      insertionTail = undefined
+      continue
+    }
     if (byId.has(item.id)) {
-      const previousIndex = previousBuiltin ? result.indexOf(previousBuiltin) : -1
+      // Only saved built-ins anchor new built-ins; preserve all saved relative positions.
+      const previous = insertionTail ?? anchor
+      const firstSavedBuiltin = result.findIndex((entry) => savedBuiltins.has(entry.id))
       const firstPlugin = result.findIndex((entry) => entry.pluginKey)
-      const nextBuiltin = items
-        .slice(defaultIndex + 1)
-        .find((entry) => !entry.pluginKey && result.includes(entry))
-      const nextIndex = nextBuiltin ? result.indexOf(nextBuiltin) : -1
-      const index =
-        firstPlugin !== -1 && firstPlugin < previousIndex
-          ? firstPlugin
-          : nextIndex > previousIndex
-            ? nextIndex
-            : previousIndex + 1
+      const index = previous
+        ? result.indexOf(previous) + 1
+        : firstSavedBuiltin !== -1
+          ? firstSavedBuiltin
+          : firstPlugin !== -1
+            ? firstPlugin
+            : result.length
       result.splice(index, 0, item)
       byId.delete(item.id)
+      insertionTail = item
     }
-    previousBuiltin = item
   }
   return [...result, ...byId.values()]
 }
