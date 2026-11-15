@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { arrangeActivityItems, mergeActivityOrder } from './activity-bar-arrangement'
+import { getDefaultRightSidebarActivityItems } from './right-sidebar-default-activity-items'
+import { getVisibleRightSidebarActivityItems } from './right-sidebar-activity-visibility'
+import { translate } from '@/i18n/i18n'
 
 describe('activity bar arrangement', () => {
   const items = [{ id: 'explorer' }, { id: 'checks' }, { id: 'plugin-a', pluginKey: 'plugin-a' }]
@@ -63,5 +66,36 @@ describe('activity bar arrangement', () => {
     expect(
       arrangeActivityItems(defaults, ['explorer', 'plugin-a', 'vault']).map((item) => item.id)
     ).toEqual(['explorer', 'plugin-a', 'workspaces', 'vault'])
+  })
+  it.each([
+    [
+      ['explorer', 'plugin:test/panel', 'vault'],
+      ['explorer', 'workspaces', 'pr-checks', 'source-control', 'plugin:test/panel', 'vault']
+    ],
+    [
+      ['plugin:test/panel', 'explorer', 'vault'],
+      ['workspaces', 'pr-checks', 'source-control', 'plugin:test/panel', 'explorer', 'vault']
+    ]
+  ])('inserts folder tabs using the production default for saved %j', (saved, expected) => {
+    const defaults = getDefaultRightSidebarActivityItems({
+      t: translate,
+      explorerShortcut: '',
+      sourceControlShortcut: '',
+      checksShortcut: '',
+      portsShortcut: ''
+    })
+    const plugin = {
+      id: 'plugin:test/panel' as const,
+      pluginKey: 'test',
+      icon: defaults[0].icon,
+      title: 'Plugin',
+      shortcut: ''
+    }
+    const folderItems = getVisibleRightSidebarActivityItems([...defaults, plugin], {
+      isFolder: true,
+      isFolderWorkspace: true,
+      hasSshHost: false
+    })
+    expect(arrangeActivityItems(folderItems, saved).map((item) => item.id)).toEqual(expected)
   })
 })

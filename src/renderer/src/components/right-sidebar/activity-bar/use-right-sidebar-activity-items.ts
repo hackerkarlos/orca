@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import { Plug, Files, GitBranch, ListChecks, Workflow } from 'lucide-react'
 import { useAppStore } from '@/store/index'
 import { useRepoById } from '@/store/repos/use-repository-catalog'
 import { isFolderRepo } from '../../../../../shared/repository/repo-kind'
@@ -20,7 +19,7 @@ import {
 import { useShortcutLabel } from '@/lib/keyboard/useShortcutLabel'
 import { useTranslate } from '@/i18n/use-translate'
 import { useUiLanguageRevision } from '@/i18n/use-ui-language-revision'
-import { AgentSessionHistoryIcon } from './agent-session-history-icon'
+import { getDefaultRightSidebarActivityItems } from './right-sidebar-default-activity-items'
 import type { ActivityBarItem } from './activity-bar-buttons'
 
 export type RightSidebarActivityItems = {
@@ -74,53 +73,13 @@ export function useRightSidebarActivityItems({
 
   const activityItems = useMemo<ActivityBarItem[]>(
     () => [
-      {
-        id: 'explorer',
-        icon: Files,
-        title: t('auto.components.right.sidebar.index.8bc2bbc3a0', 'Explorer'),
-        shortcut: explorerShortcut === 'Unassigned' ? '' : explorerShortcut
-      },
-      {
-        id: 'vault',
-        icon: AgentSessionHistoryIcon,
-        title: t('auto.components.right.sidebar.index.aiVaultSessionHistory', 'Agents'),
-        shortcut: ''
-      },
-      {
-        id: 'workspaces',
-        icon: Workflow,
-        title: t('auto.components.right.sidebar.index.folderWorkspaces', 'Attached worktrees'),
-        shortcut: '',
-        folderOnly: true
-      },
-      {
-        id: 'pr-checks',
-        icon: ListChecks,
-        title: t('auto.components.right.sidebar.index.parentPrChecks', 'PR Checks'),
-        shortcut: '',
-        folderOnly: true
-      },
-      {
-        id: 'source-control',
-        icon: GitBranch,
-        title: t('auto.components.right.sidebar.index.0314901467', 'Source Control'),
-        shortcut: sourceControlShortcut === 'Unassigned' ? '' : sourceControlShortcut,
-        gitOnly: true
-      },
-      {
-        id: 'checks',
-        icon: ListChecks,
-        title: t('auto.components.right.sidebar.index.83a10e3c44', 'Checks'),
-        shortcut: checksShortcut === 'Unassigned' ? '' : checksShortcut,
-        gitOnly: true
-      },
-      {
-        id: 'ports',
-        icon: Plug,
-        title: t('auto.components.right.sidebar.index.441733b630', 'Ports'),
-        shortcut: portsShortcut === 'Unassigned' ? '' : portsShortcut,
-        sshOnly: true
-      },
+      ...getDefaultRightSidebarActivityItems({
+        t,
+        explorerShortcut,
+        sourceControlShortcut,
+        checksShortcut,
+        portsShortcut
+      }),
       // Append plugin tabs to preserve built-in navigation positions.
       ...getPluginPanelActivityItems(visiblePluginPanels, pluginPanelErrors)
     ],
