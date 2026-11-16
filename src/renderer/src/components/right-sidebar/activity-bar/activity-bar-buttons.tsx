@@ -1,6 +1,9 @@
 import React from 'react'
 import { MoreHorizontal } from 'lucide-react'
-import type { ActivityBarPosition, ActiveRightSidebarTab } from '../../../../../shared/ui-chrome/ui-chrome-types'
+import type {
+  ActivityBarPosition,
+  ActiveRightSidebarTab
+} from '../../../../../shared/ui-chrome/ui-chrome-types'
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { ActivityBarPositionMenu } from './activity-bar-position-menu'
 import type { CheckStatus as CoarseCheckStatus } from '../../../../../shared/github/pull-requests/pull-request-types'
