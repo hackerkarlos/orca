@@ -21,6 +21,7 @@ import {
 } from './codex-subagent-roster'
 import {
   codexTranscriptTurnEnd,
+  codexTurnReviewer,
   followCodexRootRollout,
   normalizedCodexRolloutPath,
   requestCodexRolloutReviewer,
@@ -144,10 +145,14 @@ function resolveCodexApprovalOwnedState(
   if (stateName !== 'waiting' || eventName !== 'PermissionRequest' || !filePath) {
     return { state: stateName }
   }
-  const seq = requestCodexRolloutReviewer(getOrCreateCodexRolloutState(state, paneKey), filePath)
-  // Ordering rule: waiting is held until a reviewer read that started after this request ends,
-  // so an approval Codex's own reviewer resolves never flashes Needs you.
-  return { state: 'working', hold: { filePath, seq, heldAt: Date.now() } }
+  const rollout = getOrCreateCodexRolloutState(state, paneKey)
+  const known = codexTurnReviewer(rollout, filePath)
+  const shown = known === undefined || known === 'auto_review' ? 'working' : 'waiting'
+  // Ordering rule: until this turn's reviewer is read, waiting is held for a read that starts after
+  // this request, so an approval Codex's own reviewer resolves never flashes Needs you; a known
+  // reviewer classifies at once and the same read rechecks it.
+  const seq = requestCodexRolloutReviewer(rollout, filePath)
+  return { state: shown, hold: { filePath, seq, heldAt: Date.now() } }
 }
 
 export function normalizeCodexEvent(
@@ -205,7 +210,10 @@ export function normalizeCodexEvent(
       }
       // Prefetch the turn's reviewer so a later approval rarely waits on a read.
       if (activityEventName === 'UserPromptSubmit' && rollout.root) {
-        requestCodexRolloutReviewer(rollout, rollout.root.cursor.filePath)
+        rollout.turnReviewerRequest = requestCodexRolloutReviewer(
+          rollout,
+          rollout.root.cursor.filePath
+        )
       }
     }
   }

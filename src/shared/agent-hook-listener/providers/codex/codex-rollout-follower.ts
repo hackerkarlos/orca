@@ -105,7 +105,10 @@ export class CodexRolloutFollower {
     const asRoot = rollout.root === file
     const epoch = rollout.epoch
     const satisfies = file.wanted
-    void readJsonlCursorAsync(file.cursor, isCodexStatusTranscriptLine)
+    // A pure tail tick may skip the open; a waiting request reads straight away.
+    void readJsonlCursorAsync(file.cursor, isCodexStatusTranscriptLine, {
+      skipUnchanged: satisfies <= file.resolved
+    })
       .then((read) => {
         file.reading = false
         const attached =

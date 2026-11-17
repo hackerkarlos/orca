@@ -283,6 +283,36 @@ describe('Codex status from hooks, with async rollout reads only for what hooks 
     expect(row()?.state).toBe('working')
   })
 
+  it('classifies an approval at once from the reviewer its turn already read, then rechecks it', async () => {
+    const root = rollout('root', taskStarted(T1), turnContext(T1, 'user'))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await settle(500)
+    await post({
+      turn_id: T1,
+      transcript_path: root,
+      hook_event_name: 'PermissionRequest',
+      ...BASH
+    })
+    expect(row()?.state).toBe('waiting')
+
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'PostToolUse', ...BASH })
+    appendFileSync(
+      root,
+      event({
+        type: 'thread_settings_applied',
+        thread_settings: { approvals_reviewer: 'auto_review' }
+      })
+    )
+    await post({
+      turn_id: T1,
+      transcript_path: root,
+      hook_event_name: 'PermissionRequest',
+      ...BASH
+    })
+    await settle()
+    expect(row()?.state).toBe('working')
+  })
+
   it('never shows an approval Codex reviews itself as Needs you, and shows a user approval', async () => {
     const root = rollout('root', taskStarted(T1), turnContext(T1, 'auto_review'))
     await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })

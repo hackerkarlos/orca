@@ -20,7 +20,7 @@ export type CodexRolloutFile = {
   readAgain: boolean
 }
 
-/** A PermissionRequest whose waiting state waits for its rollout's reviewer. */
+/** A PermissionRequest whose classification a reviewer read still has to confirm. */
 export type CodexApprovalHold = { filePath: string; seq: number; heldAt: number }
 
 export type CodexRolloutState = {
@@ -40,6 +40,8 @@ export type CodexRolloutState = {
   childFiles: Map<string, CodexRolloutFile>
   rootApprovalHold?: CodexApprovalHold & { lead: CodexLeadTurnState }
   requestSeq: number
+  /** The reviewer request this turn's UserPromptSubmit made. */
+  turnReviewerRequest?: number
 }
 
 export function normalizedCodexRolloutPath(transcriptPath: string | undefined): string | undefined {
@@ -84,6 +86,7 @@ export function followCodexRootRollout(
   rollout.turnEnds.clear()
   rollout.cliVersion = undefined
   rollout.rootApprovalHold = undefined
+  rollout.turnReviewerRequest = undefined
 }
 
 /** Ask for a fresh reviewer read of a rollout; returns the request a later read must satisfy. */
@@ -174,6 +177,20 @@ export function codexTranscriptTurnEnd(
   turnId: string
 ): 'completed' | 'failed' | undefined {
   return rollout?.turnEnds.get(turnId)
+}
+
+/** The root turn's reviewer once a read made for this turn landed. Codex writes turn_context
+ *  (and its settings) before the turn's UserPromptSubmit hook, so that read already holds it. */
+export function codexTurnReviewer(
+  rollout: CodexRolloutState,
+  filePath: string
+): CodexApprovalsReviewer | undefined {
+  const root = rollout.root
+  return root?.cursor.filePath === filePath &&
+    rollout.turnReviewerRequest !== undefined &&
+    root.resolved >= rollout.turnReviewerRequest
+    ? root.reviewer
+    : undefined
 }
 
 /** Who reviews approvals for a rollout, as of its latest finished read. */

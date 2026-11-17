@@ -4,6 +4,7 @@ import type { HookListenerState } from '../../listener-state'
 import { record } from './codex-rollout-jsonl-cursor'
 import { buildCodexChildDrivenStatusPayload } from './codex-events'
 import { markCodexLeadTurnInterrupted, setCodexMainAgentTurnState } from './codex-state'
+import { pendingCodexAsyncQuestion } from './codex-async-questions'
 import { codexCancelNeedsRollout } from './codex-interrupt-hook-support'
 import {
   codexRolloutFile,
@@ -56,8 +57,13 @@ function settleCodexApprovalHolds(state: HookListenerState, paneKey: string, now
     rollout.rootApprovalHold = undefined
   } else if (rootHold && holdSettled(rollout, rootHold, now)) {
     rollout.rootApprovalHold = undefined
-    if (codexRolloutReviewer(rollout, rootHold.filePath) !== 'auto_review') {
-      setCodexMainAgentTurnState(state, paneKey, { state: 'waiting', model: rootHold.lead.model })
+    const settled =
+      codexRolloutReviewer(rollout, rootHold.filePath) !== 'auto_review' ||
+      pendingCodexAsyncQuestion(state, paneKey)
+        ? 'waiting'
+        : 'working'
+    if (settled !== lead?.state) {
+      setCodexMainAgentTurnState(state, paneKey, { state: settled, model: rootHold.lead.model })
     }
   }
   for (const child of state.codexSubagentRosterByPaneKey.get(paneKey)?.values() ?? []) {
