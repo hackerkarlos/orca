@@ -90,7 +90,9 @@ export class AgentTranscriptPollScheduler<T> {
             watchedEntry.nextBindAt = 0
             wake()
           },
-          { watchParent: false }
+          // Why: on Windows a watch on the file opens it, so a scanner holding the rollout stalls
+          // the main thread; the directory watch filters events to this file instead.
+          { watchParent: true }
         )
       }
     }
