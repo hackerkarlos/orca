@@ -1,5 +1,5 @@
 import { ClaudeHelperKillPoller } from '../../../shared/agent-hook-listener/providers/claude/transcripts/claude-helper-kill-poller'
-import { pollCodexTranscriptStatus } from '../../../shared/agent-hook-listener/providers/codex/codex-transcript-poll'
+import { CodexRolloutFollower } from '../../../shared/agent-hook-listener/providers/codex/codex-rollout-follower'
 import { normalizeHookPayload } from '../../../shared/agent-hook-listener/normalization/normalize-hook-payload'
 import {
   hasPendingAgentResultText,
@@ -12,7 +12,7 @@ import {
   museLogOffset,
   nextMusePollDelay,
   shouldPollHookTranscript,
-  hookTranscriptWatchPath,
+  codexRolloutTailPath,
   transcriptPollUpdate
 } from '../../../shared/agent-hook-listener/transcript-poll-policy'
 import { AgentTranscriptPollScheduler } from '../../../shared/agent-hook-listener/transcripts/agent-transcript-poll-scheduler'
@@ -20,7 +20,7 @@ import type { EnrichedAgentHookEventPayload, IncomingAgentHookEvent } from './se
 import {
   ASSISTANT_MESSAGE_RETRY_ATTEMPTS,
   ASSISTANT_MESSAGE_RETRY_MS,
-  CODEX_SUBAGENT_POLL_MS
+  TRANSCRIPT_POLL_MS
 } from './server-constants'
 import { AgentHookServerStatusUpdate } from './server-status-update'
 
@@ -43,9 +43,21 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
   })
 
   private readonly transcriptPollScheduler = new AgentTranscriptPollScheduler<TranscriptPoll>(
-    CODEX_SUBAGENT_POLL_MS,
+    TRANSCRIPT_POLL_MS,
     (paneKey, poll) => this.runTranscriptPoll(paneKey, poll)
   )
+
+  private readonly codexRollouts = new CodexRolloutFollower({
+    state: this.state,
+    env: () => this.env,
+    listening: () => this.server !== null && this.server !== undefined,
+    publish: (update, context) => {
+      const next = this.applyNormalizedStatus(update)
+      if (next) {
+        this.scheduleTranscriptPoll('codex', context.body, next)
+      }
+    }
+  })
 
   protected applyObservedLocalHook(
     incoming: IncomingAgentHookEvent,
@@ -90,6 +102,7 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
 
   protected clearAllTranscriptPolls(): void {
     this.transcriptPollScheduler.clearAll()
+    this.codexRollouts.clearAll()
     this.claudeHelperKills.clearAll()
   }
 
@@ -104,6 +117,7 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
 
   protected clearTranscriptPoll(paneKey: string): void {
     this.transcriptPollScheduler.clear(paneKey)
+    this.codexRollouts.clear(paneKey)
     this.claudeHelperKills.clear(paneKey)
   }
 
@@ -130,6 +144,9 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
     if (source !== 'codex' && source !== 'muse') {
       return
     }
+    if (source === 'codex') {
+      this.codexRollouts.observe(original.paneKey, { body })
+    }
     if (!shouldPollHookTranscript(this.state, source, original)) {
       this.transcriptPollScheduler.clear(original.paneKey)
       return
@@ -139,7 +156,7 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
     this.transcriptPollScheduler.schedule(
       original.paneKey,
       { source, body, original, delayMs: museDelayMs },
-      hookTranscriptWatchPath(this.state, source, original.paneKey),
+      source === 'codex' ? codexRolloutTailPath(this.state, original.paneKey) : undefined,
       museDelayMs
     )
   }
@@ -165,11 +182,18 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
     ) {
       return
     }
+    if (source === 'codex') {
+      // The read runs off-thread and publishes when it lands; keep the tail armed meanwhile.
+      this.codexRollouts.tail(paneKey)
+      this.transcriptPollScheduler.schedule(
+        paneKey,
+        poll,
+        codexRolloutTailPath(this.state, paneKey)
+      )
+      return
+    }
     const logOffset = source === 'muse' ? museLogOffset(this.state, paneKey) : undefined
-    const normalized =
-      source === 'codex'
-        ? pollCodexTranscriptStatus(this.state, original, body, this.env)
-        : normalizeHookPayload(this.state, source, body, this.env)
+    const normalized = normalizeHookPayload(this.state, source, body, this.env)
     if (!normalized) {
       return
     }

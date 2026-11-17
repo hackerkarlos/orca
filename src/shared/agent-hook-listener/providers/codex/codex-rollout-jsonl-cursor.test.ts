@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { runProcess } from '@orca/process-host'
+
+import { readJsonlCursorAsync, readJsonlFirstRecordAsync } from './codex-rollout-async-read'
 
 const directories: string[] = []
 
@@ -12,9 +14,9 @@ afterEach(() => {
   }
 })
 
-describe('readJsonlFirstRecord', () => {
+describe('async Codex rollout reads', () => {
   it.skipIf(process.platform === 'win32')(
-    'rejects writer-less FIFOs and symlinks to them without blocking',
+    'reject writer-less FIFOs and symlinks to them instead of pinning a threadpool worker',
     async () => {
       const directory = mkdtempSync(join(tmpdir(), 'codex-rollout-fifo-'))
       directories.push(directory)
@@ -23,25 +25,12 @@ describe('readJsonlFirstRecord', () => {
       const created = await runProcess({ program: 'mkfifo', args: [fifo], timeoutMs: 5000 })
       expect(created.code).toBe(0)
       symlinkSync(fifo, link)
-      const readerPath = resolve(
-        'src/shared/agent-hook-listener/providers/codex/codex-rollout-jsonl-cursor.ts'
-      )
-      const result = await runProcess({
-        program: process.execPath,
-        args: [
-          '--import',
-          'tsx',
-          '--eval',
-          `const assert = require('node:assert/strict');
-const { readJsonlFirstRecord } = require(${JSON.stringify(readerPath)});
-for (const path of ${JSON.stringify([fifo, link, directory])}) {
-  assert.equal(readJsonlFirstRecord(path), undefined);
-}`
-        ],
-        timeoutMs: 5000
-      })
-      expect(result.timedOut).toBe(false)
-      expect(result.code, result.stderr).toBe(0)
+      for (const path of [fifo, link, directory]) {
+        await expect(readJsonlFirstRecordAsync(path)).resolves.toBeUndefined()
+        await expect(
+          readJsonlCursorAsync({ filePath: path, offset: 0, carry: '' })
+        ).resolves.toBeUndefined()
+      }
     }
   )
 })

@@ -1,5 +1,5 @@
 import { ClaudeHelperKillPoller } from '../../../shared/agent-hook-listener/providers/claude/transcripts/claude-helper-kill-poller'
-import { pollCodexTranscriptStatus } from '../../../shared/agent-hook-listener/providers/codex/codex-transcript-poll'
+import { CodexRolloutFollower } from '../../../shared/agent-hook-listener/providers/codex/codex-rollout-follower'
 // Retry late transcript results against the same cached event; one owner cancels both timer families before cache teardown.
 import {
   hasPendingAgentResultText,
@@ -15,7 +15,7 @@ import {
   museLogOffset,
   nextMusePollDelay,
   shouldPollHookTranscript,
-  hookTranscriptWatchPath,
+  codexRolloutTailPath,
   transcriptPollUpdate
 } from '../../../shared/agent-hook-listener/transcript-poll-policy'
 import { AgentTranscriptPollScheduler } from '../../../shared/agent-hook-listener/transcripts/agent-transcript-poll-scheduler'
@@ -23,7 +23,7 @@ import { ClaudeOwedNotificationExpiryTimers } from '../../../shared/agent-hook-l
 
 const ASSISTANT_MESSAGE_RETRY_ATTEMPTS = 5
 const ASSISTANT_MESSAGE_RETRY_MS = 50
-const CODEX_SUBAGENT_POLL_MS = 1_000
+const TRANSCRIPT_POLL_MS = 1_000
 
 type TranscriptPoll = {
   source: AgentHookSource
@@ -50,6 +50,7 @@ export type AgentHookResultRetryHost = {
 export class AgentHookResultRetryScheduler {
   private assistantMessageRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private transcriptPollScheduler: AgentTranscriptPollScheduler<TranscriptPoll>
+  private readonly codexRollouts: CodexRolloutFollower
   private host: AgentHookResultRetryHost
   private readonly claudeHelperKills: ClaudeHelperKillPoller
   private claudeOwedNotificationExpiry: ClaudeOwedNotificationExpiryTimers
@@ -65,9 +66,20 @@ export class AgentHookResultRetryScheduler {
     })
     this.claudeOwedNotificationExpiry = new ClaudeOwedNotificationExpiryTimers(host.state)
     this.transcriptPollScheduler = new AgentTranscriptPollScheduler(
-      CODEX_SUBAGENT_POLL_MS,
+      TRANSCRIPT_POLL_MS,
       (paneKey, poll) => this.runTranscriptPoll(paneKey, poll)
     )
+    this.codexRollouts = new CodexRolloutFollower({
+      state: host.state,
+      env: () => host.env,
+      listening: host.isListening,
+      publish: (update, context) => {
+        const next = host.applyEvent(update, 'codex', context.env, context.version)
+        if (next) {
+          this.scheduleTranscriptPoll('codex', context.body, next, context.env, context.version)
+        }
+      }
+    })
   }
 
   clearAll(): void {
@@ -76,6 +88,7 @@ export class AgentHookResultRetryScheduler {
     }
     this.assistantMessageRetryTimers.clear()
     this.transcriptPollScheduler.clearAll()
+    this.codexRollouts.clearAll()
     this.claudeHelperKills.clearAll()
     this.claudeOwedNotificationExpiry.clearAll()
   }
@@ -105,6 +118,7 @@ export class AgentHookResultRetryScheduler {
 
   clearTranscriptPoll(paneKey: string): void {
     this.transcriptPollScheduler.clear(paneKey)
+    this.codexRollouts.clear(paneKey)
     this.claudeHelperKills.clear(paneKey)
   }
 
@@ -131,6 +145,9 @@ export class AgentHookResultRetryScheduler {
     if (source !== 'codex' && source !== 'muse') {
       return
     }
+    if (source === 'codex') {
+      this.codexRollouts.observe(original.paneKey, { body, env, version })
+    }
     if (!shouldPollHookTranscript(this.host.state, source, original)) {
       this.transcriptPollScheduler.clear(original.paneKey)
       return
@@ -147,7 +164,7 @@ export class AgentHookResultRetryScheduler {
         version,
         delayMs: museDelayMs
       },
-      hookTranscriptWatchPath(this.host.state, source, original.paneKey),
+      source === 'codex' ? codexRolloutTailPath(this.host.state, original.paneKey) : undefined,
       museDelayMs
     )
   }
@@ -177,11 +194,18 @@ export class AgentHookResultRetryScheduler {
     ) {
       return
     }
+    if (source === 'codex') {
+      // The read runs off-thread and publishes when it lands; keep the tail armed meanwhile.
+      this.codexRollouts.tail(paneKey)
+      this.transcriptPollScheduler.schedule(
+        paneKey,
+        poll,
+        codexRolloutTailPath(this.host.state, paneKey)
+      )
+      return
+    }
     const logOffset = source === 'muse' ? museLogOffset(this.host.state, paneKey) : undefined
-    const event =
-      source === 'codex'
-        ? pollCodexTranscriptStatus(this.host.state, original, body, this.host.env)
-        : normalizeHookPayload(this.host.state, source, body, this.host.env)
+    const event = normalizeHookPayload(this.host.state, source, body, this.host.env)
     if (!event) {
       return
     }

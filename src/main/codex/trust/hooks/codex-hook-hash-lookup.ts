@@ -1,7 +1,10 @@
 import { withTimeout } from '../../../../shared/concurrency/promise-timeout-fallback'
 import { dedupeInFlightRun } from '../../../runtime/concurrency/in-flight-run-dedupe'
 import { resolveCodexCommand, resolveCodexCommandForSpawn } from '../../../codex-cli/command'
-import { getManagedScriptPath } from '../../hooks/definitions/codex-hook-definition'
+import {
+  CODEX_EVENT_LABEL,
+  getManagedScriptPath
+} from '../../hooks/definitions/codex-hook-definition'
 import { buildCodexHookCommand as getManagedCommand } from '../../hooks/definitions/codex-hook-command-form'
 import {
   deriveCodexHookHashes,
@@ -18,6 +21,7 @@ import {
   readMemoizedVersionAnswer
 } from './codex-hook-trust-memo'
 import { normalizeRuntimePathForComparison as codexBinaryKey } from '../../../../shared/file-access/cross-platform-path'
+import { recordInstalledCodexInterruptHook } from '../../../../shared/agent-hook-listener/providers/codex/codex-interrupt-hook-support'
 
 // Cold hash derivation must not delay launches beyond this bound.
 export const CODEX_HOOK_LAUNCH_WAIT_MS = 3_000
@@ -108,6 +112,12 @@ async function askCodexForHookHashes(
 
 function remember(codexPath: string, known: KnownAnswer): CodexHookAnswer {
   answers.set(codexBinaryKey(codexPath), known)
+  // Status skips the rollout cancel check only when this Codex lists the Interrupt hook (0.150+).
+  if (known.answer.kind !== 'pending') {
+    recordInstalledCodexInterruptHook(
+      known.answer.kind === 'hashes' && CODEX_EVENT_LABEL.Interrupt in known.answer.hashes
+    )
+  }
   return known.answer
 }
 

@@ -1,9 +1,7 @@
 import type { AgentHookSource } from './transport/agent-hook-relay'
 import type { AgentHookEventPayload } from './listener-event'
 import type { HookListenerState } from './listener-state'
-import { hasCodexTranscriptSubagents } from './providers/codex/codex-state'
 import { hasMuseSessionLog } from './providers/muse/muse-events'
-import { hasPendingCodexSubagentIdentity } from './providers/codex/codex-subagent-roster'
 import { parseHookEnvelope } from './hook-envelope'
 
 export function shouldPollHookTranscript(
@@ -12,12 +10,7 @@ export function shouldPollHookTranscript(
   event: AgentHookEventPayload
 ): boolean {
   if (source === 'codex') {
-    return (
-      hasCodexTranscriptSubagents(state, event.paneKey) ||
-      hasPendingCodexSubagentIdentity(state.codexSubagentRosterByPaneKey.get(event.paneKey)) ||
-      (state.codexLeadStateByPaneKey.get(event.paneKey)?.state !== 'done' &&
-        Boolean(state.codexSubagentTranscriptByPaneKey.get(event.paneKey)?.parent.filePath))
-    )
+    return codexRolloutTailPath(state, event.paneKey) !== undefined
   }
   if (source === 'muse') {
     // Muse question waits/answers exist only in the session log.
@@ -61,14 +54,14 @@ export function museHookPollPane(
     : undefined
 }
 
-/** Child rollout discovery keeps its existing cadence; only a root-only pane can use one file watch. */
-export function hookTranscriptWatchPath(
+/** Codex's root rollout is tailed only while a turn is open with no Stop or Interrupt yet: /review
+ *  and failed turns end without either, so only the rollout records their end. */
+export function codexRolloutTailPath(
   state: HookListenerState,
-  source: AgentHookSource,
   paneKey: string
 ): string | undefined {
-  return source === 'codex' && !hasCodexTranscriptSubagents(state, paneKey)
-    ? state.codexSubagentTranscriptByPaneKey.get(paneKey)?.parent.filePath
+  return state.codexLeadStateByPaneKey.get(paneKey)?.state !== 'done'
+    ? state.codexRolloutByPaneKey.get(paneKey)?.root?.cursor.filePath
     : undefined
 }
 

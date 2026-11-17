@@ -1,23 +1,15 @@
-import { extname, isAbsolute } from 'node:path'
-import { readJsonlFirstRecord, record } from './codex-rollout-jsonl-cursor'
+import { record, type JsonRecord } from './codex-rollout-jsonl-cursor'
 import { codexSubagentPathLabel } from './codex-agent-path'
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' ? value.trim() || undefined : undefined
 }
 
-/** Immutable provider metadata names the child even when its parent emits no activity items. A string result says why it can't yet. */
-export function readCodexSubagentIdentity(
-  transcriptPath: string,
+/** A child rollout's first line names the child even when its hooks only say `default`. */
+export function codexSubagentIdentityFromHead(
+  head: JsonRecord | undefined,
   agentId: string
-): { description?: string } | 'pending' | 'unreadable' | undefined {
-  if (!isAbsolute(transcriptPath) || extname(transcriptPath) !== '.jsonl') {
-    return undefined
-  }
-  const head = readJsonlFirstRecord(transcriptPath)
-  if (head === 'pending' || head === 'unreadable') {
-    return head
-  }
+): { description?: string } | undefined {
   const payload = record(head?.payload)
   if (head?.type !== 'session_meta' || payload?.id !== agentId) {
     return undefined
