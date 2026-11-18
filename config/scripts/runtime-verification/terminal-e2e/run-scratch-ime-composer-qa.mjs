@@ -321,7 +321,7 @@ async function runOuter() {
       env: {
         ...process.env,
         GTK_IM_MODULE: 'ibus',
-        IBUS_ENABLE_SYNC_MODE: '1',
+        IBUS_ENABLE_SYNC_MODE: '0',
         LANG: process.env.LANG || 'C.UTF-8',
         QT_IM_MODULE: 'ibus',
         XDG_CACHE_HOME: path.join(evidenceDir, 'cache'),
