@@ -342,13 +342,33 @@ describe('Codex status from hooks, with async rollout reads only for what hooks 
   })
 })
 
+/** Hold every read after its bytes were read; `captured` resolves once the first read has them. */
+function holdReads(): { captured: Promise<void>; releaseAll: () => void } {
+  const releases: (() => void)[] = []
+  let captured: () => void = () => {}
+  const capturedPromise = new Promise<void>((resolve) => (captured = resolve))
+  reads.gate = () => {
+    captured()
+    return new Promise((resolve) => releases.push(resolve))
+  }
+  return {
+    captured: capturedPromise,
+    releaseAll: () => {
+      reads.gate = undefined
+      for (const release of releases.splice(0)) {
+        release()
+      }
+    }
+  }
+}
+
 describe('Codex rollout read ordering', () => {
   it('holds a user approval as working until a read that started after it lands', async () => {
-    let release: () => void = () => {}
-    reads.gate = () => new Promise((resolve) => (release = resolve))
+    const held = holdReads()
     const root = rollout('root', taskStarted(T1), turnContext(T1, 'auto_review'))
     await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
-    // The reviewer changes after the prefetch read already started.
+    await held.captured
+    // The reviewer changes after the prefetch read already has its bytes.
     appendFileSync(root, turnContext(T1, 'user'))
     await post({
       turn_id: T1,
@@ -359,8 +379,7 @@ describe('Codex rollout read ordering', () => {
     expect(reads.inFlight.get(root)).toBe(1)
     expect(row()?.state).toBe('working')
 
-    reads.gate = undefined
-    release()
+    held.releaseAll()
     await vi.waitFor(() => expect(row()?.state).toBe('waiting'))
     expect(reads.maxInFlight).toBe(1)
   })
@@ -381,15 +400,38 @@ describe('Codex rollout read ordering', () => {
     expect(row()?.state).toBe('waiting')
   })
 
+  it('never keeps an overdue approval working on an earlier turn reviewer, and lets its late read correct it', async () => {
+    const root = rollout('root', taskStarted(T1), turnContext(T1, 'auto_review'))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await settle(500)
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'Stop' })
+
+    const held = holdReads()
+    appendFileSync(root, taskStarted(T2) + turnContext(T2, 'auto_review'))
+    await post({ turn_id: T2, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await post({
+      turn_id: T2,
+      transcript_path: root,
+      hook_event_name: 'PermissionRequest',
+      ...BASH
+    })
+    expect(row()?.state).toBe('working')
+    await vi.advanceTimersByTimeAsync(5_100)
+    expect(row()?.state).toBe('waiting')
+
+    held.releaseAll()
+    await settle()
+    expect(row()?.state).toBe('working')
+  })
+
   it('drops a pre-0.150 abort read that lands after Stop and the next prompt', async () => {
-    let release: () => void = () => {}
-    reads.gate = () => new Promise((resolve) => (release = resolve))
+    const held = holdReads()
     const root = rollout('root', sessionMeta('0.146.0'), taskStarted(T1), turnAborted(T1))
     await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await held.captured
     await post({ turn_id: T1, transcript_path: root, hook_event_name: 'Stop' })
     await post({ turn_id: T2, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
-    reads.gate = undefined
-    release()
+    held.releaseAll()
     await settle()
     expect(shown(row())).toEqual({
       state: 'working',
@@ -400,17 +442,16 @@ describe('Codex rollout read ordering', () => {
   })
 
   it('re-reads, in the new turn, an abort read that started before the turn moved on', async () => {
-    let release: () => void = () => {}
-    reads.gate = () => new Promise((resolve) => (release = resolve))
+    const held = holdReads()
     const root = rollout('root', sessionMeta('0.146.0'), taskStarted(T1), turnAborted(T1))
     // Hooks without turn ids leave only read order to tell the two turns apart.
     await post({ transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await held.captured
     await post({ transcript_path: root, hook_event_name: 'Stop' })
     // Codex writes a turn's task_started before its UserPromptSubmit hook runs.
     appendFileSync(root, taskStarted(T2))
     await post({ transcript_path: root, hook_event_name: 'UserPromptSubmit' })
-    reads.gate = undefined
-    release()
+    held.releaseAll()
     await settle()
     expect(shown(row())).toEqual({
       state: 'working',
@@ -421,15 +462,14 @@ describe('Codex rollout read ordering', () => {
   })
 
   it('drops a child name read once the child has finished', async () => {
-    let release: () => void = () => {}
-    reads.gate = () => new Promise((resolve) => (release = resolve))
+    const held = holdReads()
     const root = rollout('root', taskStarted(T1))
     const child = rollout('child', childMeta(CHILD_ID, '/root/scout'))
     await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
     await post({ transcript_path: child, hook_event_name: 'SubagentStart', agent_id: CHILD_ID })
+    await held.captured
     await post({ transcript_path: root, hook_event_name: 'SubagentStop', agent_id: CHILD_ID })
-    reads.gate = undefined
-    release()
+    held.releaseAll()
     await settle()
     expect(shown(row()).subagents).toEqual([])
   })

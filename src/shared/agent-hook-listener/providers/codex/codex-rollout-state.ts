@@ -4,7 +4,6 @@ import { record, type JsonRecord } from './codex-rollout-jsonl-cursor'
 import type { JsonlCursorRead } from './codex-rollout-async-read'
 import { reconcileCodexTranscriptTurn, type CodexTranscriptTurn } from './codex-turn-transcript'
 import { readApprovalsReviewer, type CodexApprovalsReviewer } from './codex-subagent-reviewer'
-import type { CodexLeadTurnState } from '../../main-agent-turn-state'
 
 const MAX_TRACKED_TURN_ENDS = 16
 const MAX_CHILD_ROLLOUTS = 64
@@ -20,8 +19,9 @@ export type CodexRolloutFile = {
   readAgain: boolean
 }
 
-/** A PermissionRequest whose classification a reviewer read still has to confirm. */
-export type CodexApprovalHold = { filePath: string; seq: number; heldAt: number }
+/** A PermissionRequest whose classification a reviewer read still has to confirm; `overdue`
+ *  once its read outlived the wait and a fallback state was shown meanwhile. */
+export type CodexApprovalHold = { filePath: string; seq: number; heldAt: number; overdue?: true }
 
 export type CodexRolloutState = {
   /**
@@ -38,7 +38,9 @@ export type CodexRolloutState = {
   cliVersion?: string
   /** Child rollouts, read only for approvals reviewer ownership. */
   childFiles: Map<string, CodexRolloutFile>
-  rootApprovalHold?: CodexApprovalHold & { lead: CodexLeadTurnState }
+  /** Ordering rule: a root approval hold lasts only while no later root hook arrived (`rootHookSeq`). */
+  rootApprovalHold?: CodexApprovalHold & { rootHookSeq: number; model?: string }
+  rootHookSeq: number
   requestSeq: number
   /** The reviewer request this turn's UserPromptSubmit made. */
   turnReviewerRequest?: number
@@ -67,7 +69,8 @@ export function createCodexRolloutState(): CodexRolloutState {
     rootTurn: { interrupted: false },
     turnEnds: new Map(),
     childFiles: new Map(),
-    requestSeq: 0
+    requestSeq: 0,
+    rootHookSeq: 0
   }
 }
 
@@ -191,12 +194,4 @@ export function codexTurnReviewer(
     root.resolved >= rollout.turnReviewerRequest
     ? root.reviewer
     : undefined
-}
-
-/** Who reviews approvals for a rollout, as of its latest finished read. */
-export function codexRolloutReviewer(
-  rollout: CodexRolloutState | undefined,
-  filePath: string
-): CodexApprovalsReviewer | undefined {
-  return rollout ? codexRolloutFile(rollout, filePath)?.reviewer : undefined
 }

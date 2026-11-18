@@ -201,6 +201,7 @@ export function normalizeCodexEvent(
       ? getOrCreateCodexRolloutState(state, paneKey)
       : state.codexRolloutByPaneKey.get(paneKey)
     if (rollout) {
+      rollout.rootHookSeq += 1
       followCodexRootRollout(rollout, transcriptPath)
       if (eventName === 'UserPromptSubmit' || eventName === 'Stop' || eventName === 'Interrupt') {
         rollout.epoch += 1
@@ -283,7 +284,11 @@ export function normalizeCodexEvent(
     turnId: turnId ?? (startsTurn ? null : undefined)
   })
   if (rollout) {
-    rollout.rootApprovalHold = owned.hold && { ...owned.hold, lead: record }
+    rollout.rootApprovalHold = owned.hold && {
+      ...owned.hold,
+      rootHookSeq: rollout.rootHookSeq,
+      model: record.model
+    }
   }
   return buildCodexStatusPayload(state, eventName, promptText, paneKey, hookPayload, {
     ...resolveCodexPaneStatus(state, paneKey, record),

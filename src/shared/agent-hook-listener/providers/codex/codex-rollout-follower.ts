@@ -140,15 +140,12 @@ export class CodexRolloutFollower {
   ): void {
     void readJsonlFirstRecordAsync(filePath)
       .then((head) => {
-        // A replaced roster belongs to a new session; this child went with the old one.
-        if (this.host.state.codexSubagentRosterByPaneKey.get(paneKey) !== roster) {
-          return
-        }
+        // Applied to the roster that asked even if its pane moved; a finished child drops it.
         if (applyCodexSubagentIdentityRead(roster, id, filePath, head, Date.now())) {
           this.publish(paneKey)
-        } else {
-          this.armWake(paneKey)
         }
+        // More queued children than one pass reads continue without waiting for a hook.
+        this.pump(paneKey, false)
       })
       .catch((error: unknown) => {
         console.error('[agent-hooks] Codex child name read failed:', error)
