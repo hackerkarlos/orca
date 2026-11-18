@@ -75,6 +75,7 @@ export class JournalSqlReaderPool {
       total.receivedBytes += stats.receivedBytes
       total.consumedBytes += stats.consumedBytes
       total.creditWaitsExpired += stats.creditWaitsExpired
+      total.outstandingBytes += slot.unreleasedBytes
     }
     return total
   }
