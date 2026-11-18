@@ -37,6 +37,7 @@ jobs:
           ibus-libpinyin
           ibus-anthy
           ibus-unikey
+          ibus-mozc
           libglib2.0-bin
           python3
           xdotool

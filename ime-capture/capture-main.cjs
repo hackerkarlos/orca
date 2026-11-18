@@ -19,17 +19,18 @@ t.focus();</script>`
 // [name, engine, steps]; a step is ['type', text] or ['key', keysym]
 const SCENARIOS = [
   ['english-baseline', 'xkb:us::eng', [['type', 'abc'], ['key', 'Return']]],
-  ['hangul-enter', 'hangul', [['type', 'gks'], ['key', 'Return']]],
+  ['anthy-hiragana-convert-confirm-enter', 'anthy', [['type', 'nihongo'], ['key', 'space'], ['key', 'Return']]],
+  ['anthy-hiragana-kana-confirm-enter', 'anthy', [['type', 'nihongo'], ['key', 'Return']]],
+  ['mozc-convert-confirm-enter', 'mozc-jp', [['key', 'Hiragana'], ['type', 'nihongo'], ['key', 'space'], ['key', 'Return']]],
+  ['mozc-kana-confirm-enter', 'mozc-jp', [['key', 'Hiragana'], ['type', 'nihongo'], ['key', 'Return']]],
+  ['mozc-confirm-then-enter', 'mozc-jp', [['key', 'Hiragana'], ['type', 'nihongo'], ['key', 'space'], ['key', 'Return'], ['key', 'Return']]],
   ['pinyin-raw-enter', 'libpinyin', [['type', 'nihao'], ['key', 'Return']]],
-  ['pinyin-candidate-space-then-enter', 'libpinyin', [['type', 'nihao'], ['key', 'space'], ['key', 'Return']]],
-  ['anthy-convert-confirm-enter', 'anthy', [['type', 'nihongo'], ['key', 'space'], ['key', 'Return']]],
-  ['anthy-confirm-then-enter', 'anthy', [['type', 'nihongo'], ['key', 'space'], ['key', 'Return'], ['key', 'Return']]],
-  ['unikey-telex-enter', 'Unikey', [['type', 'xin chaof'], ['key', 'Return']]],
-  ['unikey-telex-ascii-word-enter', 'Unikey', [['type', 'xin'], ['key', 'Return']]]
+  ['unikey-telex-enter', 'Unikey', [['type', 'xin chaof'], ['key', 'Return']]]
 ]
 
+
 app.whenReady().then(async () => { try {
-  const results = { electron: process.versions.electron, chrome: process.versions.chrome, sync: process.env.IBUS_ENABLE_SYNC_MODE ?? null, ibus: sh('ibus', ['version']), engines: sh('ibus', ['list-engine']).split('\n').filter((l) => /hangul|pinyin|anthy|unikey|Unikey|xkb:us::eng/i.test(l)), scenarios: [] }
+  const results = { electron: process.versions.electron, chrome: process.versions.chrome, sync: process.env.IBUS_ENABLE_SYNC_MODE ?? null, ibus: sh('ibus', ['version']), engines: sh('ibus', ['list-engine']).split('\n').filter((l) => /hangul|pinyin|anthy|unikey|Unikey|mozc|xkb:us::eng/i.test(l)), scenarios: [] }
   const win = new BrowserWindow({ width: 800, height: 400, show: true, webPreferences: { contextIsolation: true } })
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(PAGE))
   await sleep(1500)
