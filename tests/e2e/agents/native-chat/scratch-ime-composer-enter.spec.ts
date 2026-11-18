@@ -48,6 +48,21 @@ test.describe('IME Enter in the native chat composer @headful', () => {
       await page.keyboard.press('Control+A')
       await page.keyboard.press('Delete')
       const repliesBefore = await reply.count()
+      await page.evaluate(() => {
+        const w = window as unknown as { __imeLog: unknown[]; __imeHooked?: boolean }
+        w.__imeLog = []
+        if (w.__imeHooked) return
+        w.__imeHooked = true
+        for (const type of ['keydown', 'keyup', 'compositionstart', 'compositionend', 'beforeinput', 'input']) {
+          document.addEventListener(type, (e) => {
+            const k = e as KeyboardEvent & InputEvent & CompositionEvent
+            w.__imeLog.push({ phase: 'capture', type, key: k.key, keyCode: k.keyCode, isComposing: k.isComposing, data: k.data, inputType: k.inputType, target: (e.target as HTMLElement)?.tagName, ts: Math.round(e.timeStamp) })
+          }, true)
+          window.addEventListener(type, (e) => {
+            w.__imeLog.push({ phase: 'window-bubble', type, key: (e as KeyboardEvent).key, prevented: e.defaultPrevented, ts: Math.round(e.timeStamp) })
+          })
+        }
+      })
       sh('xdotool', ['search', '--onlyvisible', '--name', title, 'windowfocus', '--sync'])
       sh('ibus', ['engine', scenario.engine])
       await page.waitForTimeout(800)
@@ -61,7 +76,8 @@ test.describe('IME Enter in the native chat composer @headful', () => {
       const repliesAfter = await reply.count()
       const composerText = await composer.evaluate((el) => (el as HTMLTextAreaElement).value ?? el.textContent)
       const sent = repliesAfter > repliesBefore
-      results.push({ name: scenario.name, engine: active, sent, expectSent: scenario.expectSent, composerText, ok: sent === scenario.expectSent })
+      const eventLog = await page.evaluate(() => (window as unknown as { __imeLog: unknown[] }).__imeLog)
+      results.push({ name: scenario.name, engine: active, sent, expectSent: scenario.expectSent, composerText, ok: sent === scenario.expectSent, eventLog })
       sh('ibus', ['engine', 'xkb:us::eng'])
       await page.waitForTimeout(500)
     }
