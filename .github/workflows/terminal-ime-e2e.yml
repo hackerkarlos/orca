@@ -34,6 +34,9 @@ jobs:
           dconf-gsettings-backend
           ibus
           ibus-hangul
+          ibus-libpinyin
+          ibus-mozc
+          ibus-unikey
           libglib2.0-bin
           python3
           xdotool
@@ -47,11 +50,11 @@ jobs:
       - name: Build Electron app for E2E
         run: pnpm exec electron-vite build --mode e2e
 
-      - name: Run native IBus Hangul exact-byte tests
+      - name: Scratch IME composer QA
         if: '!cancelled()'
         env:
           SKIP_BUILD: '1'
-        run: pnpm run test:e2e:terminal-ime-native
+        run: node config/scripts/runtime-verification/terminal-e2e/run-scratch-ime-composer-qa.mjs
 
       - name: Upload terminal IME evidence
         if: always()
