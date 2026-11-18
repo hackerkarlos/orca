@@ -604,6 +604,23 @@ describe('Codex rollout read ordering', () => {
     expect(row(target)?.state).toBe('waiting')
   })
 
+  it('ends a /review turn on the pane it moved to when no hook follows', async () => {
+    const target = GOOD_PANE
+    const review = rollout('review', taskStarted(T1))
+    await post({ turn_id: T1, transcript_path: review, hook_event_name: 'UserPromptSubmit' })
+    await post({ turn_id: T1, transcript_path: review, hook_event_name: 'PreToolUse', ...BASH })
+    await settle(1_000)
+    server.transferPaneAuthority(PANE, target, 'pty-1')
+    appendFileSync(review, taskComplete(T1))
+    await settle()
+    expect(shown(row(target))).toEqual({
+      state: 'done',
+      interrupted: false,
+      outcome: undefined,
+      subagents: []
+    })
+  })
+
   it('drops a pre-0.150 abort read that lands after Stop and the next prompt', async () => {
     const held = holdReads()
     const root = rollout('root', sessionMeta('0.146.0'), taskStarted(T1), turnAborted(T1))

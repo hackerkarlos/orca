@@ -118,9 +118,17 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
 
   /** A pane's authority moved: its Codex reads in flight and held approvals follow it. */
   protected moveTranscriptPoll(fromPaneKey: string, toPaneKey: string): void {
+    const poll = this.transcriptPollScheduler.peek(fromPaneKey)
     this.transcriptPollScheduler.clear(fromPaneKey)
     this.claudeHelperKills.clear(fromPaneKey)
     this.codexRollouts.move(fromPaneKey, toPaneKey)
+    // Re-arm the destination's tail now: a /review or failed-turn end may send no further hook.
+    const tailPath = codexRolloutTailPath(this.state, toPaneKey)
+    if (poll?.source === 'codex' && tailPath) {
+      this.transcriptPollScheduler.schedule(toPaneKey, poll, tailPath, undefined, (name) =>
+        codexRolloutWatchesName(this.state, toPaneKey, name)
+      )
+    }
   }
 
   protected clearTranscriptPoll(paneKey: string): void {
@@ -185,15 +193,16 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
 
   private runTranscriptPoll(paneKey: string, poll: TranscriptPoll): void {
     const { source, body, original } = poll
-    // Recheck ownership at callback time; newer events supersede this payload even if children remain.
-    if (
-      paneKey !== original.paneKey ||
-      !this.server ||
-      this.state.lastStatusByPaneKey.get(original.paneKey) !== original
-    ) {
-      return
-    }
     if (source === 'codex') {
+      // The tail publishes against whichever row is current, so a re-stamped row (a pane move) keeps it.
+      const current = this.state.lastStatusByPaneKey.get(paneKey)
+      if (
+        !this.server ||
+        current?.payload.agentType !== 'codex' ||
+        !shouldPollHookTranscript(this.state, 'codex', current)
+      ) {
+        return
+      }
       // The read runs off-thread and publishes when it lands; keep the tail armed meanwhile.
       this.codexRollouts.tail(paneKey)
       this.transcriptPollScheduler.schedule(
@@ -203,6 +212,14 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
         undefined,
         (name) => codexRolloutWatchesName(this.state, paneKey, name)
       )
+      return
+    }
+    // Recheck ownership at callback time; newer events supersede this payload.
+    if (
+      paneKey !== original.paneKey ||
+      !this.server ||
+      this.state.lastStatusByPaneKey.get(original.paneKey) !== original
+    ) {
       return
     }
     const logOffset = source === 'muse' ? museLogOffset(this.state, paneKey) : undefined

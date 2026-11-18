@@ -4,6 +4,8 @@ import { transcriptPollUpdate } from '../../transcript-poll-policy'
 import { readJsonlCursorAsync, readJsonlFirstRecordAsync } from './codex-rollout-async-read'
 import { codexApprovalHoldDeadline, codexRolloutStatus } from './codex-rollout-status'
 import { getOrCreateCodexRolloutState } from './codex-state'
+import { record } from './codex-rollout-jsonl-cursor'
+import { parsePaneKey } from '../../../workspace-layout/stable-pane-id'
 import {
   commitCodexRolloutRead,
   followCodexChildRollout,
@@ -82,6 +84,15 @@ export class CodexRolloutFollower {
     pane.wake = undefined
     pane.wakeAt = undefined
     pane.key = toPaneKey
+    // A rollout-derived Stop is built from this envelope, so it must name the destination pane.
+    const envelope = record(pane.body)
+    if (envelope) {
+      pane.body = {
+        ...envelope,
+        paneKey: toPaneKey,
+        tabId: parsePaneKey(toPaneKey)?.tabId ?? envelope.tabId
+      }
+    }
     this.panes.set(toPaneKey, pane)
     this.pump(toPaneKey, false)
   }
