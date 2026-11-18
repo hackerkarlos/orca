@@ -94,6 +94,7 @@ export type RuntimeClientSettingsUpdate = Pick<
   | 'machineName'
   | 'nativeChatPermissionMode'
   | 'nativeChatAutoContinueAfterUsageLimit'
+  | 'nativeChatResumeWorkOnRestart'
   | 'workspaceCleanupPolicy'
   | 'prAutoRefresh'
   | 'newTabMenuLayout'
