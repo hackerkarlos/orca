@@ -7,10 +7,6 @@ import type {
 import type { AgentSessionWireRefusal } from '../../../../shared/agent-session/failures/agent-session-wire-refusals'
 import type { AgentChildWorkView } from '../../../../shared/agent-status/child-work/agent-status-child-work-view'
 import { MAX_TIMER_DELAY_MS } from '../../../../shared/concurrency/timer-delay'
-import { structuredAgentSessionConversationFence } from '../host/structured-agent-session-provider-child'
-import type { StructuredAgentSessionHostDeps } from '../host/structured-agent-session-host-types'
-import type { StructuredAgentSessionContinuationHost } from './structured-agent-session-restart-continuation'
-import type { StructuredAgentSessionRestartCandidateReader } from './structured-agent-session-restart-candidates'
 import type { SendSettlementWaitOptions } from '../delivery/structured-agent-session-send-settlement'
 
 export type StructuredAgentSessionRestartResumeSurfaces = {
@@ -74,25 +70,5 @@ export function structuredAgentSessionRestartResumeSurfaces(
         budgetMs: MAX_TIMER_DELAY_MS
       }),
     now
-  }
-}
-
-/** What a continuation needs from the host; the send-time read keeps a chat that moved on from continuing. */
-export function restartContinuationHost(
-  deps: Pick<StructuredAgentSessionHostDeps, 'store' | 'logger'>,
-  sessions: StructuredAgentSessionContinuationHost['sessions'],
-  surfaces: StructuredAgentSessionRestartResumeSurfaces,
-  deriveAtSend: StructuredAgentSessionRestartCandidateReader
-): StructuredAgentSessionContinuationHost {
-  return {
-    ...surfaces,
-    logger: deps.logger,
-    sessions,
-    conversationFence: (sessionId) =>
-      deps.store.getRecord(sessionId)
-        ? structuredAgentSessionConversationFence(deps.store, sessionId)
-        : null,
-    stillResumable: async (marker) =>
-      (await deriveAtSend([marker], 'may-be-held')).candidates.length === 1
   }
 }
