@@ -10,12 +10,15 @@ import type * as AsyncRead from '../../../../../../shared/agent-hook-listener/pr
 
 // Every async rollout read goes through this gate: it counts reads in flight per file and can
 // hold a result back after the bytes were read, which is how a slow open or a late read looks.
-const reads = vi.hoisted(() => ({
-  gate: undefined as undefined | ((filePath: string) => Promise<void>),
-  inFlight: new Map<string, number>(),
-  maxInFlight: 0,
-  io: new Set<Promise<unknown>>()
-}))
+const reads = vi.hoisted(() => {
+  const gated: {
+    gate?: (filePath: string) => Promise<void>
+    inFlight: Map<string, number>
+    maxInFlight: number
+    io: Set<Promise<unknown>>
+  } = { inFlight: new Map(), maxInFlight: 0, io: new Set() }
+  return gated
+})
 
 vi.mock(
   '../../../../../../shared/agent-hook-listener/providers/codex/codex-rollout-async-read',
@@ -443,6 +446,12 @@ function mulberry32(seed: number): () => number {
   }
 }
 
+/** Hold each read result back 0-2 s of fake time, which settle() advances. */
+function delayEachRead(random: () => number): () => Promise<void> {
+  // ast-grep-ignore: test-no-real-time-wait -- runs on fake timers that settle() drives
+  return () => new Promise((resolve) => setTimeout(resolve, random() * 2_000))
+}
+
 type Scenario = { name: string; run: () => Promise<void>; expected: Record<string, unknown> }
 
 const SCENARIOS: Scenario[] = [
@@ -561,7 +570,7 @@ describe('Codex rollout reads under random delays', () => {
     it(`ends "${scenario.name}" the same however late each read lands`, async () => {
       for (let seed = 1; seed <= 12; seed += 1) {
         const random = seed === 1 ? () => 0 : mulberry32(seed)
-        reads.gate = () => new Promise((resolve) => setTimeout(resolve, random() * 2_000))
+        reads.gate = delayEachRead(random)
         await scenario.run()
         await settle()
         expect({ seed, ...shown(row()) }).toEqual({ seed, ...scenario.expected })
