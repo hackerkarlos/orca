@@ -100,4 +100,4 @@ export type StructuredAgentSessionRuntimeDeps = StructuredAgentSessionTransportO
     record: AgentSessionRecord,
     launchDirectory: string
   ) => Promise<AgentSessionAccountHome | null>
-} & Pick<StructuredAgentSessionHostDeps, 'onRequestFailure' | 'statusSink'>
+} & Pick<StructuredAgentSessionHostDeps, 'onRequestFailure' | 'onIdleProviderDeath' | 'statusSink'>
