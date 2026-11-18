@@ -1,3 +1,4 @@
+import { basename } from 'node:path'
 import type { AgentHookSource } from './transport/agent-hook-relay'
 import type { AgentHookEventPayload } from './listener-event'
 import type { HookListenerState } from './listener-state'
@@ -54,15 +55,38 @@ export function museHookPollPane(
     : undefined
 }
 
-/** Codex's root rollout is tailed only while a turn is open with no Stop or Interrupt yet: /review
- *  and failed turns end without either, so only the rollout records their end. */
+/** Codex's rollouts are tailed only while a root turn is open with no Stop or Interrupt yet (/review
+ *  and failed turns end without either) or a child is live (an errored, interrupted or closed child
+ *  sends no SubagentStop); only the rollouts record those ends. */
 export function codexRolloutTailPath(
   state: HookListenerState,
   paneKey: string
 ): string | undefined {
-  return state.codexLeadStateByPaneKey.get(paneKey)?.state !== 'done'
-    ? state.codexRolloutByPaneKey.get(paneKey)?.root?.cursor.filePath
-    : undefined
+  const root = state.codexRolloutByPaneKey.get(paneKey)?.root?.cursor.filePath
+  if (root && state.codexLeadStateByPaneKey.get(paneKey)?.state !== 'done') {
+    return root
+  }
+  const roster = state.codexSubagentRosterByPaneKey.get(paneKey)
+  const child = [...(roster?.values() ?? [])].find((tracked) => tracked.rolloutPath)?.rolloutPath
+  return child ? (root ?? child) : undefined
+}
+
+/** The tail's directory watch wakes for the root rollout and its live children's rollouts. */
+export function codexRolloutWatchesName(
+  state: HookListenerState,
+  paneKey: string,
+  name: string
+): boolean {
+  const root = state.codexRolloutByPaneKey.get(paneKey)?.root?.cursor.filePath
+  if (root && basename(root) === name) {
+    return true
+  }
+  for (const child of state.codexSubagentRosterByPaneKey.get(paneKey)?.values() ?? []) {
+    if (child.rolloutPath && basename(child.rolloutPath) === name) {
+      return true
+    }
+  }
+  return false
 }
 
 export function transcriptPollUpdate<T extends AgentHookEventPayload>(

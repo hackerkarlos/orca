@@ -17,11 +17,28 @@ export type CodexRolloutFile = {
   resolved: number
   reading: boolean
   readAgain: boolean
+  /** A live child whose own rollout records how its turn ended. */
+  childId?: string
+  /** The child's turn as its rollout last showed it; the last lifecycle record wins. */
+  childTurnOpen?: boolean
+  unreadableSince?: number
 }
 
-/** A PermissionRequest whose classification a reviewer read still has to confirm; `overdue`
- *  once its read outlived the wait and a fallback state was shown meanwhile. */
-export type CodexApprovalHold = { filePath: string; seq: number; heldAt: number; overdue?: true }
+/**
+ * A PermissionRequest whose classification a reviewer read still has to confirm; `overdue` once
+ * its read outlived the wait and a fallback state was shown meanwhile. Ordering rule: only the
+ * approved tool's PostToolUse (`toolKey`) or the turn moving on (`epoch`) answers it; a parallel
+ * tool's hooks do not, so the approval still reaches Needs you.
+ */
+export type CodexApprovalHold = {
+  filePath: string
+  seq: number
+  heldAt: number
+  toolKey: string
+  /** The state shown meanwhile; settling changes it only if the reviewer read disagrees. */
+  shown: 'working' | 'waiting'
+  overdue?: true
+}
 
 export type CodexRolloutState = {
   /**
@@ -36,11 +53,15 @@ export type CodexRolloutState = {
   turnEnds: Map<string, 'completed' | 'failed'>
   /** `cli_version` from the root rollout's session_meta, when the read reached the first line. */
   cliVersion?: string
-  /** Child rollouts, read only for approvals reviewer ownership. */
+  /** Child rollouts: reviewer ownership, and for live children how their turn ended. */
   childFiles: Map<string, CodexRolloutFile>
-  /** Ordering rule: a root approval hold lasts only while no later root hook arrived (`rootHookSeq`). */
-  rootApprovalHold?: CodexApprovalHold & { rootHookSeq: number; model?: string }
-  rootHookSeq: number
+  /**
+   * Children whose rollout showed their turn ended (errored, interrupted or closed: Codex sends no
+   * SubagentStop for those), with the child's hook count when that read started. Ordering rule:
+   * a hook for the child after the read started proves it alive, so the end does not apply.
+   */
+  childEnds: Map<string, number>
+  rootApprovalHold?: CodexApprovalHold & { epoch: number; model?: string }
   requestSeq: number
   /** The reviewer request this turn's UserPromptSubmit made. */
   turnReviewerRequest?: number
@@ -69,8 +90,8 @@ export function createCodexRolloutState(): CodexRolloutState {
     rootTurn: { interrupted: false },
     turnEnds: new Map(),
     childFiles: new Map(),
-    requestSeq: 0,
-    rootHookSeq: 0
+    childEnds: new Map(),
+    requestSeq: 0
   }
 }
 
@@ -97,14 +118,7 @@ export function requestCodexRolloutReviewer(rollout: CodexRolloutState, filePath
   let file =
     rollout.root?.cursor.filePath === filePath ? rollout.root : rollout.childFiles.get(filePath)
   if (!file) {
-    if (rollout.childFiles.size >= MAX_CHILD_ROLLOUTS) {
-      const oldest = rollout.childFiles.keys().next().value
-      if (typeof oldest === 'string') {
-        rollout.childFiles.delete(oldest)
-      }
-    }
-    file = createRolloutFile(filePath)
-    rollout.childFiles.set(filePath, file)
+    file = addChildRolloutFile(rollout, filePath)
   }
   rollout.requestSeq += 1
   file.wanted = rollout.requestSeq
@@ -118,6 +132,64 @@ export function codexRolloutFile(
   return rollout.root?.cursor.filePath === filePath
     ? rollout.root
     : rollout.childFiles.get(filePath)
+}
+
+/** Which tool an approval is for; Codex's PermissionRequest carries no tool_use_id. */
+export function codexApprovalToolKey(hookPayload: Record<string, unknown>): string {
+  return `${String(hookPayload.tool_name ?? '')}
+${JSON.stringify(hookPayload.tool_input ?? null)}`
+}
+
+function addChildRolloutFile(rollout: CodexRolloutState, filePath: string): CodexRolloutFile {
+  if (rollout.childFiles.size >= MAX_CHILD_ROLLOUTS) {
+    // Evict reviewer-only files first; a followed child's file ends with the child.
+    const evictable = [...rollout.childFiles].find(([, file]) => file.childId === undefined)
+    const oldest = evictable?.[0] ?? rollout.childFiles.keys().next().value
+    if (typeof oldest === 'string') {
+      rollout.childFiles.delete(oldest)
+    }
+  }
+  const file = createRolloutFile(filePath)
+  rollout.childFiles.set(filePath, file)
+  return file
+}
+
+/** Follow a live child's own rollout, whose turn end is the only record of an errored or stopped child. */
+export function followCodexChildRollout(
+  rollout: CodexRolloutState,
+  childId: string,
+  filePath: string
+): CodexRolloutFile {
+  const file = rollout.childFiles.get(filePath) ?? addChildRolloutFile(rollout, filePath)
+  file.childId = childId
+  return file
+}
+
+/** Stop following a finished child's rollout. */
+export function forgetCodexChildRollout(rollout: CodexRolloutState, childId: string): void {
+  rollout.childEnds.delete(childId)
+  for (const [filePath, file] of rollout.childFiles) {
+    if (file.childId === childId) {
+      rollout.childFiles.delete(filePath)
+    }
+  }
+}
+
+function lifecycleType(recordValue: JsonRecord): string | undefined {
+  const payload = record(recordValue.payload)
+  return recordValue.type === 'event_msg' && typeof payload?.type === 'string'
+    ? payload.type
+    : undefined
+}
+
+/** A parent's record that it interrupted a child (persisted by Codex before 0.150). */
+function readInterruptedChild(recordValue: JsonRecord): string | undefined {
+  const payload = record(recordValue.payload)
+  return lifecycleType(recordValue) === 'sub_agent_activity' &&
+    payload?.kind === 'interrupted' &&
+    typeof payload.agent_thread_id === 'string'
+    ? payload.agent_thread_id.trim() || undefined
+    : undefined
 }
 
 function readTurnEnd(
@@ -141,21 +213,54 @@ function readCliVersion(recordValue: JsonRecord): string | undefined {
     : undefined
 }
 
-/** Apply a finished read: `read` undefined means the rollout was unreadable. */
+/** Apply a finished read: `read` undefined means the rollout was unreadable. `childHooks` holds
+ *  each child's hook count when the read started. */
 export function commitCodexRolloutRead(
   rollout: CodexRolloutState,
   file: CodexRolloutFile,
   read: JsonlCursorRead | undefined,
-  satisfies: number
+  satisfies: number,
+  childHooks: ReadonlyMap<string, number>,
+  now: number
 ): void {
   file.resolved = Math.max(file.resolved, satisfies)
   if (!read) {
     // A stale reviewer must never turn an unreadable rollout into a hidden prompt.
     file.reviewer = undefined
+    file.unreadableSince ??= now
     return
   }
+  file.unreadableSince = undefined
   file.cursor = read.cursor
   file.reviewer = readApprovalsReviewer(read.records) ?? file.reviewer
+  const markEnded = (childId: string): void => {
+    const hooks = childHooks.get(childId)
+    if (hooks !== undefined) {
+      rollout.childEnds.set(childId, hooks)
+    }
+  }
+  for (const recordValue of read.records) {
+    const interrupted = readInterruptedChild(recordValue)
+    if (interrupted) {
+      markEnded(interrupted)
+    }
+    if (!file.childId) {
+      continue
+    }
+    const type = lifecycleType(recordValue)
+    if (type === 'task_started' || type === 'turn_started') {
+      file.childTurnOpen = true
+    } else if (type === 'task_complete' || type === 'turn_complete' || type === 'turn_aborted') {
+      file.childTurnOpen = false
+    }
+  }
+  if (file.childId && file.childTurnOpen !== undefined) {
+    if (file.childTurnOpen) {
+      rollout.childEnds.delete(file.childId)
+    } else {
+      markEnded(file.childId)
+    }
+  }
   if (file !== rollout.root) {
     return
   }

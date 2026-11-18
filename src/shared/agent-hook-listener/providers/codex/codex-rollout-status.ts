@@ -5,12 +5,14 @@ import { record } from './codex-rollout-jsonl-cursor'
 import { buildCodexChildDrivenStatusPayload } from './codex-events'
 import { markCodexLeadTurnInterrupted, setCodexMainAgentTurnState } from './codex-state'
 import { pendingCodexAsyncQuestion } from './codex-async-questions'
+import { finishCodexSubagent } from './codex-subagent-roster'
 import { codexCancelNeedsRollout } from './codex-interrupt-hook-support'
 import type { CodexApprovalsReviewer } from './codex-subagent-reviewer'
 import {
   codexRolloutFile,
   codexTranscriptTurnEnd,
   codexTurnReviewer,
+  forgetCodexChildRollout,
   type CodexApprovalHold,
   type CodexRolloutState
 } from './codex-rollout-state'
@@ -70,8 +72,8 @@ function settleCodexApprovalHolds(state: HookListenerState, paneKey: string, now
   }
   const rootHold = rollout.rootApprovalHold
   const lead = state.codexLeadStateByPaneKey.get(paneKey)
-  // Ordering rule: a later root hook means the approval was answered (restated rows do not count).
-  if (rootHold && rollout.rootHookSeq !== rootHold.rootHookSeq) {
+  // Ordering rule: the turn moving on answered the approval; its own PostToolUse clears it on arrival.
+  if (rootHold && rollout.epoch !== rootHold.epoch) {
     rollout.rootApprovalHold = undefined
   } else if (rootHold) {
     const settled = holdReviewer(rollout, rootHold, now)
@@ -83,8 +85,13 @@ function settleCodexApprovalHolds(state: HookListenerState, paneKey: string, now
         settled.reviewer !== 'auto_review' || pendingCodexAsyncQuestion(state, paneKey)
           ? 'waiting'
           : 'working'
-      if (next !== lead?.state) {
-        setCodexMainAgentTurnState(state, paneKey, { state: next, model: rootHold.model })
+      // Ordering rule: a verdict that matches what was shown changes nothing, so a parallel
+      // tool's hook in between is not overridden twice; a new verdict applies even after one.
+      if (next !== rootHold.shown) {
+        rootHold.shown = next
+        if (next !== lead?.state) {
+          setCodexMainAgentTurnState(state, paneKey, { state: next, model: rootHold.model })
+        }
       }
     }
   }
@@ -97,7 +104,36 @@ function settleCodexApprovalHolds(state: HookListenerState, paneKey: string, now
     if (settled.final) {
       child.approvalHold = undefined
     }
-    child.state = settled.reviewer === 'auto_review' ? 'working' : 'waiting'
+    const next = settled.reviewer === 'auto_review' ? 'working' : 'waiting'
+    if (next !== hold.shown) {
+      hold.shown = next
+      child.state = next
+    }
+  }
+}
+
+// A child whose rollout stays unreadable and who sends no hooks this long is gone (deleted or never written).
+const CHILD_UNREADABLE_GRACE_MS = 60_000
+
+/** Retire children whose own rollout ended their turn without a SubagentStop (an errored turn, or
+ *  one stopped by interrupt_agent or close_agent), or who left neither a rollout nor hooks. */
+function retireEndedCodexChildren(state: HookListenerState, paneKey: string, now: number): void {
+  const rollout = state.codexRolloutByPaneKey.get(paneKey)
+  const roster = state.codexSubagentRosterByPaneKey.get(paneKey)
+  if (!rollout || !roster) {
+    return
+  }
+  for (const [id, child] of roster) {
+    const file = child.rolloutPath ? rollout.childFiles.get(child.rolloutPath) : undefined
+    const ended = rollout.childEnds.get(id) === child.hooks
+    const vanished =
+      file?.unreadableSince !== undefined &&
+      now - file.unreadableSince >= CHILD_UNREADABLE_GRACE_MS &&
+      now - (child.lastHookAt ?? 0) >= CHILD_UNREADABLE_GRACE_MS
+    if (ended || vanished) {
+      finishCodexSubagent(roster, id)
+      forgetCodexChildRollout(rollout, id)
+    }
   }
 }
 
@@ -111,6 +147,7 @@ export function codexRolloutStatus(
   now = Date.now()
 ): AgentHookEventPayload | undefined {
   settleCodexApprovalHolds(state, original.paneKey, now)
+  retireEndedCodexChildren(state, original.paneKey, now)
   const rollout = state.codexRolloutByPaneKey.get(original.paneKey)
   const lead = state.codexLeadStateByPaneKey.get(original.paneKey)
   const rootTurn = rollout?.rootTurn

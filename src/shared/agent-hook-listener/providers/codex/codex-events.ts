@@ -21,12 +21,13 @@ import {
 } from './codex-subagent-roster'
 import {
   codexTranscriptTurnEnd,
-  codexTurnReviewer,
+  codexApprovalToolKey,
   followCodexRootRollout,
+  forgetCodexChildRollout,
   normalizedCodexRolloutPath,
-  requestCodexRolloutReviewer,
-  type CodexApprovalHold
+  requestCodexRolloutReviewer
 } from './codex-rollout-state'
+import { resolveCodexApprovalOwnedState } from './codex-approval-classification'
 import { readFirstString } from '../../interactive-tool'
 import type { HookListenerState } from '../../listener-state'
 import { resolvePrompt, resolveToolState } from '../../prompt-fields'
@@ -120,7 +121,12 @@ export function normalizeCodexSubagentLifecycleEvent(
       },
       Date.now()
     )
-    markCodexSubagentHookEvidence(roster, agentId)
+    markCodexSubagentHookEvidence(roster, agentId, {
+      now: Date.now(),
+      rolloutPath: normalizedCodexRolloutPath(
+        readFirstString(hookPayload, ['transcript_path', 'transcriptPath'])
+      )
+    })
     // Hooks only say `default`; the child's own rollout header holds its name, read once off-thread.
     queueCodexSubagentIdentity(
       roster,
@@ -129,30 +135,12 @@ export function normalizeCodexSubagentLifecycleEvent(
     )
   } else {
     finishCodexSubagent(roster, agentId)
+    const rollout = state.codexRolloutByPaneKey.get(paneKey)
+    if (rollout) {
+      forgetCodexChildRollout(rollout, agentId)
+    }
   }
   return buildCodexChildDrivenStatusPayload(state, eventName, paneKey, hookPayload)
-}
-
-/** Codex PermissionRequest precedes reviewer/user decisions; suppress reviewer-owned waiting (STA-7698). request_user_input still blocks a human on PreToolUse (#9861). */
-function resolveCodexApprovalOwnedState(
-  state: HookListenerState,
-  eventName: unknown,
-  paneKey: string,
-  transcriptPath: string | undefined,
-  stateName: 'working' | 'waiting' | 'done'
-): { state: 'working' | 'waiting' | 'done'; hold?: CodexApprovalHold } {
-  const filePath = normalizedCodexRolloutPath(transcriptPath)
-  if (stateName !== 'waiting' || eventName !== 'PermissionRequest' || !filePath) {
-    return { state: stateName }
-  }
-  const rollout = getOrCreateCodexRolloutState(state, paneKey)
-  const known = codexTurnReviewer(rollout, filePath)
-  const shown = known === undefined || known === 'auto_review' ? 'working' : 'waiting'
-  // Ordering rule: until this turn's reviewer is read, waiting is held for a read that starts after
-  // this request, so an approval Codex's own reviewer resolves never flashes Needs you; a known
-  // reviewer classifies at once and the same read rechecks it.
-  const seq = requestCodexRolloutReviewer(rollout, filePath)
-  return { state: shown, hold: { filePath, seq, heldAt: Date.now() } }
 }
 
 export function normalizeCodexEvent(
@@ -201,7 +189,6 @@ export function normalizeCodexEvent(
       ? getOrCreateCodexRolloutState(state, paneKey)
       : state.codexRolloutByPaneKey.get(paneKey)
     if (rollout) {
-      rollout.rootHookSeq += 1
       followCodexRootRollout(rollout, transcriptPath)
       if (eventName === 'UserPromptSubmit' || eventName === 'Stop' || eventName === 'Interrupt') {
         rollout.epoch += 1
@@ -225,7 +212,8 @@ export function normalizeCodexEvent(
       eventName,
       paneKey,
       transcriptPath,
-      stateName
+      stateName,
+      hookPayload
     )
     upsertCodexSubagent(
       roster,
@@ -237,7 +225,11 @@ export function normalizeCodexEvent(
       },
       Date.now()
     )
-    markCodexSubagentHookEvidence(roster, agentId)
+    markCodexSubagentHookEvidence(roster, agentId, {
+      now: Date.now(),
+      rolloutPath: normalizedCodexRolloutPath(transcriptPath),
+      answeredToolKey: eventName === 'PostToolUse' ? codexApprovalToolKey(hookPayload) : undefined
+    })
     const tracked = roster.get(agentId.trim())
     if (tracked && child.hold) {
       tracked.approvalHold = child.hold
@@ -250,7 +242,14 @@ export function normalizeCodexEvent(
     // Hook-observed children end with their own SubagentStop (some outlive the root turn); only restored rows no hook confirmed go.
     retireUnobservedCodexSubagents(getOrCreateCodexSubagentRoster(state, paneKey))
   }
-  const owned = resolveCodexApprovalOwnedState(state, eventName, paneKey, transcriptPath, stateName)
+  const owned = resolveCodexApprovalOwnedState(
+    state,
+    eventName,
+    paneKey,
+    transcriptPath,
+    stateName,
+    hookPayload
+  )
   // An open async question needs the user even while Codex keeps working.
   const leadState =
     trackCodexAsyncQuestions(state, paneKey, eventName, hookPayload) && owned.state === 'working'
@@ -283,12 +282,14 @@ export function normalizeCodexEvent(
     sessionId,
     turnId: turnId ?? (startsTurn ? null : undefined)
   })
-  if (rollout) {
-    rollout.rootApprovalHold = owned.hold && {
-      ...owned.hold,
-      rootHookSeq: rollout.rootHookSeq,
-      model: record.model
-    }
+  if (rollout && owned.hold) {
+    rollout.rootApprovalHold = { ...owned.hold, epoch: rollout.epoch, model: record.model }
+  } else if (
+    eventName === 'PostToolUse' &&
+    rollout?.rootApprovalHold?.toolKey === codexApprovalToolKey(hookPayload)
+  ) {
+    // The approved tool ran, so its approval was answered.
+    rollout.rootApprovalHold = undefined
   }
   return buildCodexStatusPayload(state, eventName, promptText, paneKey, hookPayload, {
     ...resolveCodexPaneStatus(state, paneKey, record),

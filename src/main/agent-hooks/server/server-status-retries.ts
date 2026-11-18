@@ -13,6 +13,7 @@ import {
   nextMusePollDelay,
   shouldPollHookTranscript,
   codexRolloutTailPath,
+  codexRolloutWatchesName,
   transcriptPollUpdate
 } from '../../../shared/agent-hook-listener/transcript-poll-policy'
 import { AgentTranscriptPollScheduler } from '../../../shared/agent-hook-listener/transcripts/agent-transcript-poll-scheduler'
@@ -115,6 +116,13 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
     this.assistantMessageRetryTimers.delete(paneKey)
   }
 
+  /** A pane's authority moved: its Codex reads in flight and held approvals follow it. */
+  protected moveTranscriptPoll(fromPaneKey: string, toPaneKey: string): void {
+    this.transcriptPollScheduler.clear(fromPaneKey)
+    this.claudeHelperKills.clear(fromPaneKey)
+    this.codexRollouts.move(fromPaneKey, toPaneKey)
+  }
+
   protected clearTranscriptPoll(paneKey: string): void {
     this.transcriptPollScheduler.clear(paneKey)
     this.codexRollouts.clear(paneKey)
@@ -157,7 +165,10 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
       original.paneKey,
       { source, body, original, delayMs: museDelayMs },
       source === 'codex' ? codexRolloutTailPath(this.state, original.paneKey) : undefined,
-      museDelayMs
+      museDelayMs,
+      source === 'codex'
+        ? (name) => codexRolloutWatchesName(this.state, original.paneKey, name)
+        : undefined
     )
   }
 
@@ -188,7 +199,9 @@ export abstract class AgentHookServerStatusRetries extends AgentHookServerStatus
       this.transcriptPollScheduler.schedule(
         paneKey,
         poll,
-        codexRolloutTailPath(this.state, paneKey)
+        codexRolloutTailPath(this.state, paneKey),
+        undefined,
+        (name) => codexRolloutWatchesName(this.state, paneKey, name)
       )
       return
     }

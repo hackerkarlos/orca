@@ -34,6 +34,11 @@ type TrackedCodexSubagent = {
   identityReadPath?: string
   /** A live hook named this child in this process; restored rows lack it. */
   observed?: true
+  /** Hooks seen for this child; a rollout end read before the latest one is stale. */
+  hooks: number
+  lastHookAt?: number
+  /** The child's own rollout, followed for turn ends no hook reports. */
+  rolloutPath?: string
   approvalHold?: CodexApprovalHold
   /** Relay session whose own roster listed this child; only that session may retire it by omission. */
   reportedBy?: string
@@ -70,7 +75,8 @@ export function upsertCodexSubagent(
     description,
     model,
     state: fields.state,
-    startedAt: now
+    startedAt: now,
+    hooks: 0
   })
 }
 
@@ -84,11 +90,21 @@ const IDENTITY_READS_PER_PASS = 8
 // A rollout that never gains a first line stays unnamed rather than being retried forever.
 const IDENTITY_MAX_ATTEMPTS = 5
 
-/** A live hook for this child: it is real in this process and any earlier approval was answered. */
-export function markCodexSubagentHookEvidence(roster: CodexSubagentRoster, id: string): void {
+/** A live hook for this child: it is real in this process, and its PostToolUse answers the approval it asked. */
+export function markCodexSubagentHookEvidence(
+  roster: CodexSubagentRoster,
+  id: string,
+  hook: { now: number; rolloutPath?: string; answeredToolKey?: string }
+): void {
   const child = roster.get(id.trim())
-  if (child) {
-    child.observed = true
+  if (!child) {
+    return
+  }
+  child.observed = true
+  child.hooks += 1
+  child.lastHookAt = hook.now
+  child.rolloutPath ??= hook.rolloutPath
+  if (hook.answeredToolKey !== undefined && child.approvalHold?.toolKey === hook.answeredToolKey) {
     child.approvalHold = undefined
   }
 }

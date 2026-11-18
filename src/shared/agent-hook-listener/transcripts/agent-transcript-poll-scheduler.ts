@@ -46,7 +46,14 @@ export class AgentTranscriptPollScheduler<T> {
   }
 
   /** An explicit `delayMs` shorter than the pending one (a Muse hook ending a quiet back-off) replaces it. */
-  schedule(key: string, value: T, filePath?: string, delayMs?: number): void {
+  /** `acceptsName` widens the watch to sibling files in the same directory (a session's children). */
+  schedule(
+    key: string,
+    value: T,
+    filePath?: string,
+    delayMs?: number,
+    acceptsName?: (name: string) => boolean
+  ): void {
     let entry = this.entries.get(key)
     if (entry && entry.filePath !== filePath) {
       this.clear(key)
@@ -92,7 +99,7 @@ export class AgentTranscriptPollScheduler<T> {
           },
           // Why: on Windows a watch on the file opens it, so a scanner holding the rollout stalls
           // the main thread; the directory watch filters events to this file instead.
-          { watchParent: true }
+          { watchParent: true, acceptsName }
         )
       }
     }

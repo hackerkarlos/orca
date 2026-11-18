@@ -3,13 +3,6 @@ import type { CodexRolloutState } from './codex-rollout-state'
 // Codex 0.150 added the Interrupt hook; older Codex records a cancel only as rollout turn_aborted.
 const FIRST_INTERRUPT_HOOK_VERSION = [0, 150] as const
 
-// Set by app main from its hooks/list trust probe of the installed Codex; unknown elsewhere.
-let installedCodexListsInterrupt: boolean | undefined
-
-export function recordInstalledCodexInterruptHook(listed: boolean | undefined): void {
-  installedCodexListsInterrupt = listed
-}
-
 function predatesInterruptHook(cliVersion: string): boolean | undefined {
   const match = /^(\d+)\.(\d+)\./.exec(cliVersion)
   if (!match) {
@@ -20,10 +13,8 @@ function predatesInterruptHook(cliVersion: string): boolean | undefined {
   return major < firstMajor || (major === firstMajor && minor < firstMinor)
 }
 
-/** Whether a cancel must come from the rollout: the session's own version decides, else the installed Codex's hook list; unknown keeps the rollout check. */
+/** Whether a cancel must come from the rollout: decided by this pane's own Codex version from its
+ *  session_meta; an unknown version keeps the rollout check, which is harmless on newer Codex. */
 export function codexCancelNeedsRollout(rollout: CodexRolloutState | undefined): boolean {
-  const sessionPredates = rollout?.cliVersion
-    ? predatesInterruptHook(rollout.cliVersion)
-    : undefined
-  return sessionPredates ?? installedCodexListsInterrupt !== true
+  return rollout?.cliVersion ? (predatesInterruptHook(rollout.cliVersion) ?? true) : true
 }

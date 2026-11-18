@@ -16,6 +16,7 @@ import {
   nextMusePollDelay,
   shouldPollHookTranscript,
   codexRolloutTailPath,
+  codexRolloutWatchesName,
   transcriptPollUpdate
 } from '../../../shared/agent-hook-listener/transcript-poll-policy'
 import { AgentTranscriptPollScheduler } from '../../../shared/agent-hook-listener/transcripts/agent-transcript-poll-scheduler'
@@ -165,7 +166,10 @@ export class AgentHookResultRetryScheduler {
         delayMs: museDelayMs
       },
       source === 'codex' ? codexRolloutTailPath(this.host.state, original.paneKey) : undefined,
-      museDelayMs
+      museDelayMs,
+      source === 'codex'
+        ? (name) => codexRolloutWatchesName(this.host.state, original.paneKey, name)
+        : undefined
     )
   }
 
@@ -200,7 +204,9 @@ export class AgentHookResultRetryScheduler {
       this.transcriptPollScheduler.schedule(
         paneKey,
         poll,
-        codexRolloutTailPath(this.host.state, paneKey)
+        codexRolloutTailPath(this.host.state, paneKey),
+        undefined,
+        (name) => codexRolloutWatchesName(this.host.state, paneKey, name)
       )
       return
     }

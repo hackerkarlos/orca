@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { AgentHookServer, _internals } from '../../../agent-hook-server'
-import { buildBody, PANE } from '../../server.test-fixtures'
-import { recordInstalledCodexInterruptHook } from '../../../../../../shared/agent-hook-listener/providers/codex/codex-interrupt-hook-support'
+import { buildBody, GOOD_PANE, PANE } from '../../server.test-fixtures'
 import type * as AsyncRead from '../../../../../../shared/agent-hook-listener/providers/codex/codex-rollout-async-read'
 
 // Every async rollout read goes through this gate: it counts reads in flight per file and can
@@ -100,8 +99,8 @@ async function post(payload: Record<string, unknown>): Promise<void> {
   expect(response.status).toBe(204)
 }
 
-function row(): Row | undefined {
-  return server.getStatusSnapshot().find((entry) => entry.paneKey === PANE)
+function row(paneKey = PANE): Row | undefined {
+  return server.getStatusSnapshot().find((entry) => entry.paneKey === paneKey)
 }
 
 /** The status facts the sidebar shows, for comparing whole timelines and end states. */
@@ -148,7 +147,6 @@ beforeEach(async () => {
   reads.gate = undefined
   reads.inFlight.clear()
   reads.maxInFlight = 0
-  recordInstalledCodexInterruptHook(undefined)
   dir = mkdtempSync(join(tmpdir(), 'codex-rollout-reads-'))
   await startServer()
 })
@@ -277,13 +275,17 @@ describe('Codex status from hooks, with async rollout reads only for what hooks 
     })
   })
 
-  it('skips the rollout cancel check when the installed Codex lists the Interrupt hook', async () => {
-    recordInstalledCodexInterruptHook(true)
+  it('keeps the rollout cancel check when the pane does not show its own Codex version', async () => {
     const root = rollout('root', taskStarted(T1))
     await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
     appendFileSync(root, turnAborted(T1))
     await settle()
-    expect(row()?.state).toBe('working')
+    expect(shown(row())).toEqual({
+      state: 'done',
+      interrupted: true,
+      outcome: 'cancellation',
+      subagents: []
+    })
   })
 
   it('classifies an approval at once from the reviewer its turn already read, then rechecks it', async () => {
@@ -362,6 +364,131 @@ function holdReads(): { captured: Promise<void>; releaseAll: () => void } {
   }
 }
 
+describe('Codex children that end without a SubagentStop', () => {
+  // Codex 0.169 writes a spawned child's rollout with its own header, then a fork of the parent's
+  // history, then the child's turns; only the last lifecycle record says how the child ended.
+  const childRollout = (childTurn: string): string =>
+    rollout(
+      'child',
+      childMeta(CHILD_ID, '/root/scout'),
+      sessionMeta('0.169.0'),
+      taskStarted(T1),
+      turnAborted(T1),
+      taskStarted(childTurn)
+    )
+
+  async function startChild(child: string): Promise<string> {
+    const root = rollout('root', sessionMeta('0.169.0'), taskStarted(T1))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await post({
+      turn_id: 'child-turn',
+      transcript_path: child,
+      hook_event_name: 'SubagentStart',
+      agent_id: CHILD_ID,
+      agent_type: 'default'
+    })
+    await settle(1_000)
+    expect(shown(row()).subagents).toEqual([['scout', 'working']])
+    return root
+  }
+
+  it('ends a child whose turn errored', async () => {
+    const child = childRollout('child-turn')
+    const root = await startChild(child)
+    appendFileSync(child, taskComplete('child-turn', { message: 'stream error' }))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'Stop' })
+    await settle()
+    expect(shown(row())).toEqual({
+      state: 'done',
+      interrupted: false,
+      outcome: undefined,
+      subagents: []
+    })
+  })
+
+  it('ends a child that interrupt_agent or close_agent stopped', async () => {
+    const child = childRollout('child-turn')
+    const root = await startChild(child)
+    await post({
+      turn_id: T1,
+      transcript_path: root,
+      hook_event_name: 'PreToolUse',
+      tool_name: 'collaborationinterrupt_agent'
+    })
+    appendFileSync(child, turnAborted('child-turn'))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'Stop' })
+    await settle()
+    expect(shown(row())).toEqual({
+      state: 'done',
+      interrupted: false,
+      outcome: undefined,
+      subagents: []
+    })
+  })
+
+  it('ends a child its parent recorded as interrupted (Codex before 0.150)', async () => {
+    const child = childRollout('child-turn')
+    const root = await startChild(child)
+    appendFileSync(
+      root,
+      event({ type: 'sub_agent_activity', agent_thread_id: CHILD_ID, kind: 'interrupted' })
+    )
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'Stop' })
+    await settle()
+    expect(shown(row()).subagents).toEqual([])
+  })
+
+  it('keeps a child whose ended turn a later hook shows resumed', async () => {
+    const child = childRollout('child-turn')
+    await startChild(child)
+    const held = holdReads()
+    appendFileSync(child, taskComplete('child-turn'))
+    await vi.advanceTimersByTimeAsync(5_000)
+    await held.captured
+    // A follow-up reactivates the child after the read took its bytes.
+    await post({
+      transcript_path: child,
+      hook_event_name: 'PreToolUse',
+      agent_id: CHILD_ID,
+      ...BASH
+    })
+    appendFileSync(child, taskStarted('child-turn-2'))
+    held.releaseAll()
+    await settle()
+    expect(shown(row()).subagents).toEqual([['scout', 'working']])
+  })
+
+  it('keeps a child working while only the root turn is cancelled', async () => {
+    const child = childRollout('child-turn')
+    const root = await startChild(child)
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'Interrupt' })
+    await settle()
+    expect(shown(row()).subagents).toEqual([['scout', 'working']])
+    await post({
+      transcript_path: root,
+      agent_transcript_path: child,
+      hook_event_name: 'SubagentStop',
+      agent_id: CHILD_ID
+    })
+    expect(shown(row()).subagents).toEqual([])
+  })
+
+  it('retires a child that has neither a rollout nor hooks for a minute', async () => {
+    const root = rollout('root', sessionMeta('0.169.0'), taskStarted(T1))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await post({
+      transcript_path: join(dir, 'rollout-missing-child.jsonl'),
+      hook_event_name: 'SubagentStart',
+      agent_id: CHILD_ID
+    })
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'Stop' })
+    await settle(30_000)
+    expect(shown(row()).subagents).toHaveLength(1)
+    await settle(40_000)
+    expect(shown(row()).subagents).toEqual([])
+  })
+})
+
 describe('Codex rollout read ordering', () => {
   it('holds a user approval as working until a read that started after it lands', async () => {
     const held = holdReads()
@@ -422,6 +549,59 @@ describe('Codex rollout read ordering', () => {
     held.releaseAll()
     await settle()
     expect(row()?.state).toBe('working')
+  })
+
+  it('still shows Needs you when a parallel tool hook lands before the reviewer read', async () => {
+    const held = holdReads()
+    const root = rollout('root', taskStarted(T1), turnContext(T1, 'user'))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await post({
+      turn_id: T1,
+      transcript_path: root,
+      hook_event_name: 'PermissionRequest',
+      ...BASH
+    })
+    const other = { tool_name: 'Read', tool_input: { path: 'a.txt' }, tool_use_id: 'call-2' }
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'PreToolUse', ...other })
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'PostToolUse', ...other })
+    expect(row()?.state).toBe('working')
+    held.releaseAll()
+    await settle()
+    expect(row()?.state).toBe('waiting')
+  })
+
+  it('drops a held approval once its own tool ran', async () => {
+    const held = holdReads()
+    const root = rollout('root', taskStarted(T1), turnContext(T1, 'user'))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await post({
+      turn_id: T1,
+      transcript_path: root,
+      hook_event_name: 'PermissionRequest',
+      ...BASH
+    })
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'PostToolUse', ...BASH })
+    held.releaseAll()
+    await settle()
+    expect(row()?.state).toBe('working')
+  })
+
+  it('carries a held approval to the pane it moves to', async () => {
+    const target = GOOD_PANE
+    const held = holdReads()
+    const root = rollout('root', taskStarted(T1), turnContext(T1, 'user'))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await post({
+      turn_id: T1,
+      transcript_path: root,
+      hook_event_name: 'PermissionRequest',
+      ...BASH
+    })
+    server.transferPaneAuthority(PANE, target, 'pty-1')
+    expect(row(target)?.state).toBe('working')
+    held.releaseAll()
+    await settle()
+    expect(row(target)?.state).toBe('waiting')
   })
 
   it('drops a pre-0.150 abort read that lands after Stop and the next prompt', async () => {
