@@ -267,6 +267,14 @@ export class StructuredAgentSessionClientDelivery {
   readStatusSummary = (sessionId: string): AgentSessionStatusSummary | undefined =>
     this.statusFeed.readPublished(sessionId)
 
+  /** Read from the journal now: until then a reopened chat shows the status saved by the last run. */
+  readFreshStatusSummary = async (
+    sessionId: string
+  ): Promise<AgentSessionStatusSummary | undefined> => {
+    await this.statusFeed.publish(sessionId)
+    return this.statusFeed.readPublished(sessionId)
+  }
+
   subscribeTurnCompletions = (subscriber: TurnCompletionSubscriber): (() => void) =>
     this.turnCompletionFeed.subscribe(subscriber)
 
