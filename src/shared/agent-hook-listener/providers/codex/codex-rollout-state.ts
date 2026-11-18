@@ -21,6 +21,7 @@ export type CodexRolloutFile = {
   childId?: string
   /** The child's turn as its rollout last showed it; the last lifecycle record wins. */
   childTurnOpen?: boolean
+  childTurnAborted?: boolean
   unreadableSince?: number
 }
 
@@ -39,6 +40,15 @@ export type CodexApprovalHold = {
   shown: 'working' | 'waiting'
   overdue?: true
 }
+
+/**
+ * A child's ended turn: `hooks` is the child's hook count when the read that saw it started.
+ * An abort can be a turn replaced by a follow-up (its task_started comes right after), so it
+ * applies only once a read that started CODEX_CHILD_ABORT_SETTLE_MS later still shows it.
+ */
+export type CodexChildEnd = { hooks: number; at: number; aborted: boolean; settled: boolean }
+
+export const CODEX_CHILD_ABORT_SETTLE_MS = 2_000
 
 export type CodexRolloutState = {
   /**
@@ -60,7 +70,7 @@ export type CodexRolloutState = {
    * SubagentStop for those), with the child's hook count when that read started. Ordering rule:
    * a hook for the child after the read started proves it alive, so the end does not apply.
    */
-  childEnds: Map<string, number>
+  childEnds: Map<string, CodexChildEnd>
   rootApprovalHold?: CodexApprovalHold & { epoch: number; model?: string }
   requestSeq: number
   /** The reviewer request this turn's UserPromptSubmit made. */
@@ -136,8 +146,15 @@ export function codexRolloutFile(
 
 /** Which tool an approval is for; Codex's PermissionRequest carries no tool_use_id. */
 export function codexApprovalToolKey(hookPayload: Record<string, unknown>): string {
-  return `${String(hookPayload.tool_name ?? '')}
-${JSON.stringify(hookPayload.tool_input ?? null)}`
+  const input = record(hookPayload.tool_input)
+  // PermissionRequest's tool_input adds the escalation justification (and a network target) as
+  // `description`; PostToolUse carries the call's own input, so key on what both share.
+  const command = input?.command
+  const subject =
+    command !== undefined
+      ? command
+      : input && Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'description'))
+  return `${String(hookPayload.tool_name ?? '')}\n${JSON.stringify(subject ?? null)}`
 }
 
 function addChildRolloutFile(rollout: CodexRolloutState, filePath: string): CodexRolloutFile {
@@ -221,7 +238,8 @@ export function commitCodexRolloutRead(
   read: JsonlCursorRead | undefined,
   satisfies: number,
   childHooks: ReadonlyMap<string, number>,
-  now: number
+  now: number,
+  readStartedAt: number = now
 ): void {
   file.resolved = Math.max(file.resolved, satisfies)
   if (!read) {
@@ -233,16 +251,25 @@ export function commitCodexRolloutRead(
   file.unreadableSince = undefined
   file.cursor = read.cursor
   file.reviewer = readApprovalsReviewer(read.records) ?? file.reviewer
-  const markEnded = (childId: string): void => {
+  const markEnded = (childId: string, aborted: boolean): void => {
     const hooks = childHooks.get(childId)
-    if (hooks !== undefined) {
-      rollout.childEnds.set(childId, hooks)
+    if (hooks === undefined) {
+      return
     }
+    const previous = rollout.childEnds.get(childId)
+    const same = previous?.hooks === hooks && previous.aborted === aborted
+    const at = same ? previous.at : now
+    rollout.childEnds.set(childId, {
+      hooks,
+      at,
+      aborted,
+      settled: !aborted || readStartedAt - at >= CODEX_CHILD_ABORT_SETTLE_MS
+    })
   }
   for (const recordValue of read.records) {
     const interrupted = readInterruptedChild(recordValue)
     if (interrupted) {
-      markEnded(interrupted)
+      markEnded(interrupted, false)
     }
     if (!file.childId) {
       continue
@@ -252,13 +279,14 @@ export function commitCodexRolloutRead(
       file.childTurnOpen = true
     } else if (type === 'task_complete' || type === 'turn_complete' || type === 'turn_aborted') {
       file.childTurnOpen = false
+      file.childTurnAborted = type === 'turn_aborted'
     }
   }
   if (file.childId && file.childTurnOpen !== undefined) {
     if (file.childTurnOpen) {
       rollout.childEnds.delete(file.childId)
     } else {
-      markEnded(file.childId)
+      markEnded(file.childId, file.childTurnAborted === true)
     }
   }
   if (file !== rollout.root) {

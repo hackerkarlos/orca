@@ -458,6 +458,18 @@ describe('Codex children that end without a SubagentStop', () => {
     expect(shown(row()).subagents).toEqual([['scout', 'working']])
   })
 
+  it('keeps a child whose aborted turn a follow-up replaced before any hook', async () => {
+    const child = childRollout('child-turn')
+    await startChild(child)
+    const startedAt = row()?.subagents?.[0]?.startedAt
+    appendFileSync(child, turnAborted('child-turn'))
+    await settle(1_200)
+    appendFileSync(child, taskStarted('child-turn-2'))
+    await settle()
+    expect(shown(row()).subagents).toEqual([['scout', 'working']])
+    expect(row()?.subagents?.[0]?.startedAt).toBe(startedAt)
+  })
+
   it('keeps a child working while only the root turn is cancelled', async () => {
     const child = childRollout('child-turn')
     const root = await startChild(child)
@@ -581,6 +593,30 @@ describe('Codex rollout read ordering', () => {
       ...BASH
     })
     await post({ turn_id: T1, transcript_path: root, hook_event_name: 'PostToolUse', ...BASH })
+    held.releaseAll()
+    await settle()
+    expect(row()?.state).toBe('working')
+  })
+
+  it('drops a held approval once its tool ran, though the request also named a justification', async () => {
+    const held = holdReads()
+    const root = rollout('root', taskStarted(T1), turnContext(T1, 'user'))
+    await post({ turn_id: T1, transcript_path: root, hook_event_name: 'UserPromptSubmit' })
+    await post({
+      turn_id: T1,
+      transcript_path: root,
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'rm x', description: 'needs escalation' }
+    })
+    await post({
+      turn_id: T1,
+      transcript_path: root,
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'rm x' },
+      tool_use_id: 'call-1'
+    })
     held.releaseAll()
     await settle()
     expect(row()?.state).toBe('working')

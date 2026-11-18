@@ -2,7 +2,11 @@ import type { AgentHookEventPayload } from '../../listener-event'
 import type { HookListenerState } from '../../listener-state'
 import { transcriptPollUpdate } from '../../transcript-poll-policy'
 import { readJsonlCursorAsync, readJsonlFirstRecordAsync } from './codex-rollout-async-read'
-import { codexApprovalHoldDeadline, codexRolloutStatus } from './codex-rollout-status'
+import {
+  codexApprovalHoldDeadline,
+  codexChildAbortDeadline,
+  codexRolloutStatus
+} from './codex-rollout-status'
 import { getOrCreateCodexRolloutState } from './codex-state'
 import { record } from './codex-rollout-jsonl-cursor'
 import { parsePaneKey } from '../../../workspace-layout/stable-pane-id'
@@ -155,6 +159,7 @@ export class CodexRolloutFollower {
     const asRoot = rollout.root === file
     const epoch = rollout.epoch
     const satisfies = file.wanted
+    const readStartedAt = Date.now()
     const childHooks = new Map(
       Array.from(
         this.host.state.codexSubagentRosterByPaneKey.get(pane.key) ?? [],
@@ -173,7 +178,15 @@ export class CodexRolloutFollower {
           (asRoot ? rollout.root === file : rollout.childFiles.get(file.cursor.filePath) === file)
         const current = attached && (!asRoot || rollout.epoch === epoch)
         if (current) {
-          commitCodexRolloutRead(rollout, file, read, satisfies, childHooks, Date.now())
+          commitCodexRolloutRead(
+            rollout,
+            file,
+            read,
+            satisfies,
+            childHooks,
+            Date.now(),
+            readStartedAt
+          )
         }
         if (attached && file.readAgain) {
           file.readAgain = false
@@ -218,6 +231,7 @@ export class CodexRolloutFollower {
     const state = this.host.state
     const dues = [
       codexApprovalHoldDeadline(state, paneKey),
+      codexChildAbortDeadline(state, paneKey),
       nextCodexSubagentIdentityRetry(state.codexSubagentRosterByPaneKey.get(paneKey))
     ].filter((due): due is number => due !== undefined)
     const wakeAt = dues.length > 0 ? Math.min(...dues) : undefined
@@ -236,8 +250,11 @@ export class CodexRolloutFollower {
       () => {
         pane.wake = undefined
         pane.wakeAt = undefined
+        const abortDue =
+          (codexChildAbortDeadline(this.host.state, paneKey) ?? Infinity) <= Date.now()
         this.publish(paneKey)
-        this.pump(paneKey, false)
+        // A due abort settles only on a fresh read of the child's rollout.
+        this.pump(paneKey, abortDue)
       },
       Math.max(0, wakeAt - Date.now())
     )

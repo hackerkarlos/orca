@@ -13,6 +13,7 @@ import {
   codexTranscriptTurnEnd,
   codexTurnReviewer,
   forgetCodexChildRollout,
+  CODEX_CHILD_ABORT_SETTLE_MS,
   type CodexApprovalHold,
   type CodexRolloutState
 } from './codex-rollout-state'
@@ -40,6 +41,22 @@ function holdReviewer(
   }
   hold.overdue = true
   return { reviewer: codexTurnReviewer(rollout, hold.filePath), final: false }
+}
+
+/** When a child's abort may be settled by a later read (a replaced turn restarts before then). */
+export function codexChildAbortDeadline(
+  state: HookListenerState,
+  paneKey: string
+): number | undefined {
+  let deadline: number | undefined
+  const roster = state.codexSubagentRosterByPaneKey.get(paneKey)
+  for (const [id, end] of state.codexRolloutByPaneKey.get(paneKey)?.childEnds ?? []) {
+    if (!end.settled && roster?.get(id)?.hooks === end.hooks) {
+      const due = end.at + CODEX_CHILD_ABORT_SETTLE_MS
+      deadline = deadline === undefined ? due : Math.min(deadline, due)
+    }
+  }
+  return deadline
 }
 
 /** When the oldest approval hold still waiting on its read must fall back. */
@@ -125,7 +142,8 @@ function retireEndedCodexChildren(state: HookListenerState, paneKey: string, now
   }
   for (const [id, child] of roster) {
     const file = child.rolloutPath ? rollout.childFiles.get(child.rolloutPath) : undefined
-    const ended = rollout.childEnds.get(id) === child.hooks
+    const end = rollout.childEnds.get(id)
+    const ended = end?.hooks === child.hooks && end.settled
     const vanished =
       file?.unreadableSince !== undefined &&
       now - file.unreadableSince >= CHILD_UNREADABLE_GRACE_MS &&
