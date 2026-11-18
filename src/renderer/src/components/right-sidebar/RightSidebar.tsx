@@ -36,6 +36,7 @@ import {
 import { RightSidebarTopActivityBar } from './activity-bar/right-sidebar-top-activity-bar'
 import { useRightSidebarActivityItems } from './activity-bar/use-right-sidebar-activity-items'
 import { useRightSidebarTabRouting } from './activity-bar/use-right-sidebar-tab-routing'
+import { cancelActivityBarFocusHandoff } from './activity-bar/activity-bar-focus-handoff'
 import { useWindowWidth } from './layout/use-window-width'
 import { usePluginViewCaptureStore } from '@/store/plugins/capture/plugin-view-capture'
 import { selectWorktreeCreationSurfaceShown } from '@/lib/workspace/creation/worktree-creation-surface'
@@ -100,6 +101,7 @@ function RightSidebarInner(): React.JSX.Element {
     (item) => item.id === effectiveTab && hidden.includes(item.id) && item.pluginKey
   )
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  useEffect(() => cancelActivityBarFocusHandoff, [])
 
   useEffect(() => {
     if (lastRouteRequestId.current === routeRequestId) {

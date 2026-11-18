@@ -67,3 +67,72 @@ it('focuses the neighbouring tab after hiding with the keyboard', async () => {
   )
   useAppStore.setState({ activityBarHidden: [], rightSidebarEffectiveTab: null })
 })
+
+function renderHideWithDelayedFrames(): { flushFrames: () => void; restore: () => void } {
+  const frames: FrameRequestCallback[] = []
+  const spy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
+    frames.push(cb)
+    return frames.length
+  })
+  const plugin: ActivityBarItem = {
+    id: 'plugin:test/panel',
+    pluginKey: 'test',
+    title: 'Plugin',
+    icon: () => null,
+    shortcut: ''
+  }
+  const items = [item, plugin]
+  useAppStore.setState({ activityBarHidden: [], rightSidebarEffectiveTab: 'plugin:test/panel' })
+  render(
+    <>
+      <DndContext>
+        <RightSidebarTopActivityBar
+          hasDesktopWindowChrome={false}
+          topActivityStripRef={vi.fn()}
+          topActivityLayout={{ visibleItems: items, overflowItems: [] }}
+          effectiveTab="plugin:test/panel"
+          onSelectTab={vi.fn()}
+          checksStatus={null}
+          closeButton={null}
+          activityBarPosition="top"
+          onChangeActivityBarPosition={vi.fn()}
+          arrangementItems={items}
+        />
+      </DndContext>
+      <textarea aria-label="Composer" />
+    </>
+  )
+  const button = screen.getByRole('button', { name: 'Plugin' })
+  button.focus()
+  fireEvent.keyDown(button, { key: 'F10', shiftKey: true })
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Hide' }))
+  return {
+    flushFrames: () => {
+      while (frames.length > 0) {
+        frames.shift()?.(0)
+      }
+    },
+    restore: () => {
+      spy.mockRestore()
+      useAppStore.setState({ activityBarHidden: [], rightSidebarEffectiveTab: null })
+    }
+  }
+}
+
+it('keeps composer focus taken between hiding and the pending focus handoff', () => {
+  const { flushFrames, restore } = renderHideWithDelayedFrames()
+  const composer = screen.getByRole('textbox', { name: 'Composer' })
+  composer.focus()
+  flushFrames()
+  expect(document.activeElement).toBe(composer)
+  cleanup()
+  restore()
+})
+
+it('lands the pending hide handoff on the neighbour when focus is not taken', () => {
+  const { flushFrames, restore } = renderHideWithDelayedFrames()
+  flushFrames()
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Explorer' }))
+  cleanup()
+  restore()
+})

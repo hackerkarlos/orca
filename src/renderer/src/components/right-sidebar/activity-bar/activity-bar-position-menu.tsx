@@ -14,6 +14,7 @@ import { useTranslate, type Translate } from '@/i18n/use-translate'
 import { useAppStore } from '@/store/index'
 import type { ActivityBarItem } from './activity-bar-buttons'
 import { mergeActivityOrder } from './activity-bar-arrangement'
+import { scheduleActivityBarFocusHandoff } from './activity-bar-focus-handoff'
 import { usePluginPanelsStore } from '@/store/plugins/catalog/plugin-contribution-catalog'
 
 async function disableActivityBarPlugin(
@@ -128,17 +129,7 @@ export function ActivityBarPositionMenu({
                   }
                 }
                 setHidden([...hidden, selected.id])
-                requestAnimationFrame(() => {
-                  requestAnimationFrame(() => {
-                    const tabs = document.querySelectorAll<HTMLElement>(
-                      'button[data-activity-item-id], [role="menuitem"][data-activity-item-id]'
-                    )
-                    const target = Array.from(tabs).find(
-                      (tab) => tab.dataset.activityItemId === neighbour?.id
-                    )
-                    ;(target ?? tabs[0])?.focus()
-                  })
-                })
+                scheduleActivityBarFocusHandoff(neighbour?.id)
               }}
             >
               {t('activityBar.hide', 'Hide')}
