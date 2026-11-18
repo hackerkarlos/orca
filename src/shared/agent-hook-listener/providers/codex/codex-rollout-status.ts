@@ -116,7 +116,7 @@ function settleCodexApprovalHolds(state: HookListenerState, paneKey: string, now
 const CHILD_UNREADABLE_GRACE_MS = 60_000
 
 /** Retire children whose own rollout ended their turn without a SubagentStop (an errored turn, or
- *  one stopped by interrupt_agent or close_agent), or who left neither a rollout nor hooks. */
+ *  one stopped by interrupt_agent or aborted at session end), or who left neither a rollout nor hooks. */
 function retireEndedCodexChildren(state: HookListenerState, paneKey: string, now: number): void {
   const rollout = state.codexRolloutByPaneKey.get(paneKey)
   const roster = state.codexSubagentRosterByPaneKey.get(paneKey)

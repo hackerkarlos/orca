@@ -56,7 +56,7 @@ export function museHookPollPane(
 }
 
 /** Codex's rollouts are tailed only while a root turn is open with no Stop or Interrupt yet (/review
- *  and failed turns end without either) or a child is live (an errored, interrupted or closed child
+ *  and failed turns end without either) or a child is live (an errored, interrupted or aborted child
  *  sends no SubagentStop); only the rollouts record those ends. */
 export function codexRolloutTailPath(
   state: HookListenerState,

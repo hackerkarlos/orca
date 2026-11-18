@@ -406,7 +406,7 @@ describe('Codex children that end without a SubagentStop', () => {
     })
   })
 
-  it('ends a child that interrupt_agent or close_agent stopped', async () => {
+  it('ends a child that interrupt_agent stopped', async () => {
     const child = childRollout('child-turn')
     const root = await startChild(child)
     await post({

@@ -56,7 +56,7 @@ export type CodexRolloutState = {
   /** Child rollouts: reviewer ownership, and for live children how their turn ended. */
   childFiles: Map<string, CodexRolloutFile>
   /**
-   * Children whose rollout showed their turn ended (errored, interrupted or closed: Codex sends no
+   * Children whose rollout showed their turn ended (errored, interrupted, or aborted at session end: Codex sends no
    * SubagentStop for those), with the child's hook count when that read started. Ordering rule:
    * a hook for the child after the read started proves it alive, so the end does not apply.
    */
